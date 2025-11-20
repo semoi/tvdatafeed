@@ -22,9 +22,11 @@ setup(
     long_description_content_type="text/markdown",
     long_description=long_description,
     install_requires=[
-        "setuptools",
-        "pandas",
-        "websocket-client",
-        "requests"
+        "setuptools>=75.0.0",
+        "pandas>=2.2.0",
+        "websocket-client>=1.8.0",
+        "requests>=2.32.0",
+        "python-dateutil>=2.9.0"
     ],
+    python_requires=">=3.9",
 )

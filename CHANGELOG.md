@@ -8,11 +8,57 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Custom exception hierarchy (tvDatafeed/exceptions.py)**
+  - TvDatafeedError base class with context support
+  - AuthenticationError, TwoFactorRequiredError for auth issues
+  - WebSocketError, WebSocketTimeoutError for connection issues
+  - DataError, DataNotFoundError, DataValidationError for data issues
+  - InvalidOHLCError, InvalidIntervalError for validation
+  - ThreadingError, LockTimeoutError, ConsumerError for concurrency
+  - ConfigurationError, RateLimitError for config/rate limiting
+  - All exceptions with helpful error messages and context
+
+- **Input validation system (tvDatafeed/validators.py)**
+  - Validators class with static validation methods
+  - validate_symbol() - format and length checking
+  - validate_exchange() - exchange name validation
+  - validate_n_bars() - bounds checking (1-5000)
+  - validate_interval() - interval enum validation
+  - validate_ohlc() - OHLC price relationship validation
+  - validate_volume() - volume non-negativity check
+  - validate_credentials() - authentication credential validation
+  - validate_timeout() - timeout value validation
+  - All validators raise specific exceptions with clear messages
+
+- **Utility functions (tvDatafeed/utils.py)**
+  - generate_session_id() - random session ID generation
+  - generate_chart_session_id() - chart session ID generation
+  - retry_with_backoff() - exponential backoff with jitter
+  - timeout_decorator() - function timeout decorator
+  - log_execution_time() - execution time logging
+  - mask_sensitive_data() - secure credential masking
+  - format_timestamp() - Unix timestamp formatting
+  - chunk_list() - list chunking utility
+  - safe_divide() - division with zero handling
+  - clamp() - value clamping utility
+  - ContextTimer - context manager for timing code blocks
+
 - **Comprehensive test infrastructure**
   - pytest configuration with coverage, markers, and timeouts
-  - Unit tests for Seis, Consumer, and TvDatafeed classes
+  - Unit tests for Seis, Consumer, TvDatafeed, Validators, Utils
+  - Integration tests for basic workflow, live feed, error scenarios
+  - 100+ test cases with full coverage
   - Mock fixtures for WebSocket and HTTP responses
+  - Test markers: unit, integration, network, threading, slow
   - Test coverage reporting (.coveragerc)
+
+- **Integration tests (tests/integration/)**
+  - test_basic_workflow.py - basic data retrieval, validation, errors
+  - test_live_feed_workflow.py - threading, callbacks, multiple symbols
+  - test_error_scenarios.py - auth errors, WebSocket errors, validation
+  - Comprehensive error scenario coverage
+  - Thread safety tests
+  - Large dataset handling tests
 
 - **Configuration system (tvDatafeed/config.py)**
   - Centralized configuration with dataclasses
@@ -51,6 +97,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Agent team documentation in .claude/agents/
 
 ### Changed
+- **TvDatafeed class (main.py) - Major refactoring**
+  - __init__() now validates credentials with Validators
+  - Uses generate_session_id() from utils instead of inline code
+  - Improved error messages and logging
+  - __auth() completely rewritten:
+    * Comprehensive error handling with AuthenticationError
+    * HTTP status code checking
+    * Timeout and connection error handling
+    * Secure logging with mask_sensitive_data()
+    * Clear error messages for troubleshooting
+  - __create_connection() now raises WebSocketError/WebSocketTimeoutError
+  - get_hist() improvements:
+    * Input validation using Validators
+    * Proper WebSocket cleanup in finally block
+    * Raises DataNotFoundError when no data available
+    * Enhanced logging with detailed progress messages
+    * Comprehensive numpy-style docstrings with examples
+  - search_symbol() improvements:
+    * Input validation for search text and exchange
+    * Timeout and connection error handling
+    * Graceful error handling (returns empty list on errors)
+    * Detailed docstrings
+  - All public methods now have type hints
+  - All public methods have numpy-style docstrings
+  - Better resource management (WebSocket cleanup)
+
+- **Package exports (__init__.py)**
+  - Export all custom exceptions
+  - Export Validators class
+  - Export utility functions
+  - Comprehensive __all__ list
+  - Module docstring added
+
 - **Dependencies updated**
   - pandas: 1.0.5 → >=1.3.0,<3.0.0
   - websocket-client: 0.57.0 → >=1.6.0,<2.0.0
@@ -58,8 +137,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Added python-dotenv for environment variables
   - Added pyotp for future 2FA support
 
+- **Code quality improvements**
+  - Removed duplicate imports
+  - Removed inline session generators (DRY principle)
+  - Better separation of concerns
+  - More maintainable error handling
+  - Foundation for future improvements (2FA, retry logic)
+
 ### Fixed
 - Requirements.txt now has proper version constraints
+- WebSocket connections now properly closed in all scenarios
+- Error messages are now clear and actionable
+- Authentication errors no longer return None silently
 
 ### Security
 - Added .env.example to guide secure credential storage

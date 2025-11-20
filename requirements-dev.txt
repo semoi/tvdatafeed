@@ -1,0 +1,28 @@
+# Testing
+pytest>=7.4.0
+pytest-cov>=4.1.0
+pytest-mock>=3.11.1
+pytest-timeout>=2.1.0
+pytest-xdist>=3.3.1
+pytest-asyncio>=0.21.1
+
+# Code Quality
+pylint>=2.17.5
+mypy>=1.5.0
+black>=23.7.0
+isort>=5.12.0
+flake8>=6.1.0
+
+# Type stubs
+pandas-stubs>=2.0.3.230814
+types-requests>=2.31.0.2
+
+# Development
+ipython>=8.14.0
+ipdb>=0.13.13
+
+# 2FA support (for future implementation)
+pyotp>=2.9.0
+
+# Environment variables
+python-dotenv>=1.0.0

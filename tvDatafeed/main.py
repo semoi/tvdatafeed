@@ -1,14 +1,35 @@
+"""
+TvDatafeed - TradingView data downloader
+
+This module provides the core functionality for fetching historical data
+from TradingView using WebSocket connections.
+"""
 import datetime
 import enum
 import json
 import logging
-import random
 import re
-import string
+from typing import Optional
 import pandas as pd
 from websocket import create_connection
 import requests
-import json
+
+from .exceptions import (
+    AuthenticationError,
+    WebSocketError,
+    WebSocketTimeoutError,
+    DataNotFoundError,
+    DataValidationError,
+    InvalidIntervalError,
+    ConfigurationError
+)
+from .validators import Validators
+from .utils import (
+    generate_session_id,
+    generate_chart_session_id,
+    mask_sensitive_data,
+    retry_with_backoff
+)
 
 logger = logging.getLogger(__name__)
 
@@ -38,54 +59,164 @@ class TvDatafeed:
 
     def __init__(
         self,
-        username: str = None,
-        password: str = None,
+        username: Optional[str] = None,
+        password: Optional[str] = None,
     ) -> None:
         """Create TvDatafeed object
 
-        Args:
-            username (str, optional): tradingview username. Defaults to None.
-            password (str, optional): tradingview password. Defaults to None.
-        """
+        Parameters
+        ----------
+        username : str, optional
+            TradingView username. If not provided, limited unauthenticated access.
+        password : str, optional
+            TradingView password. Required if username is provided.
 
+        Raises
+        ------
+        ConfigurationError
+            If only username or only password is provided (both or neither required).
+        AuthenticationError
+            If authentication fails with provided credentials.
+        """
         self.ws_debug = False
+
+        # Validate credentials
+        Validators.validate_credentials(username, password)
 
         self.token = self.__auth(username, password)
 
         if self.token is None:
             self.token = "unauthorized_user_token"
             logger.warning(
-                "you are using nologin method, data you access may be limited"
+                "Using unauthenticated access - data may be limited. "
+                "Provide username and password for full access."
             )
 
         self.ws = None
-        self.session = self.__generate_session()
-        self.chart_session = self.__generate_chart_session()
+        self.session = generate_session_id(prefix="qs")
+        self.chart_session = generate_chart_session_id()
 
-    def __auth(self, username, password):
+    def __auth(self, username: Optional[str], password: Optional[str]) -> Optional[str]:
+        """Authenticate with TradingView
 
-        if (username is None or password is None):
-            token = None
+        Parameters
+        ----------
+        username : str, optional
+            TradingView username
+        password : str, optional
+            TradingView password
 
-        else:
-            data = {"username": username,
-                    "password": password,
-                    "remember": "on"}
-            try:
-                response = requests.post(
-                    url=self.__sign_in_url, data=data, headers=self.__signin_headers)
-                token = response.json()['user']['auth_token']
-            except Exception as e:
-                logger.error('error while signin')
-                token = None
+        Returns
+        -------
+        str or None
+            Authentication token if successful, None for unauthenticated access
 
-        return token
+        Raises
+        ------
+        AuthenticationError
+            If authentication fails with provided credentials
+        """
+        if username is None or password is None:
+            return None
 
-    def __create_connection(self):
-        logging.debug("creating websocket connection")
-        self.ws = create_connection(
-            "wss://data.tradingview.com/socket.io/websocket", headers=self.__ws_headers, timeout=self.__ws_timeout
-        )
+        data = {
+            "username": username,
+            "password": password,
+            "remember": "on"
+        }
+
+        try:
+            logger.info(f"Authenticating user: {username}")
+
+            response = requests.post(
+                url=self.__sign_in_url,
+                data=data,
+                headers=self.__signin_headers,
+                timeout=10.0
+            )
+
+            if response.status_code != 200:
+                logger.error(f"Authentication failed with status code: {response.status_code}")
+                raise AuthenticationError(
+                    f"Authentication failed: HTTP {response.status_code}. "
+                    f"Please check your credentials."
+                )
+
+            response_data = response.json()
+
+            if 'error' in response_data:
+                error_msg = response_data.get('error', 'Unknown error')
+                logger.error(f"Authentication error: {error_msg}")
+                raise AuthenticationError(f"Authentication failed: {error_msg}")
+
+            if 'user' not in response_data or 'auth_token' not in response_data['user']:
+                logger.error("Invalid response structure from authentication")
+                raise AuthenticationError(
+                    "Authentication failed: Invalid response from server"
+                )
+
+            token = response_data['user']['auth_token']
+            logger.info(f"Authentication successful for user: {username}")
+            logger.debug(f"Auth token: {mask_sensitive_data(token)}")
+
+            return token
+
+        except requests.exceptions.Timeout:
+            logger.error("Authentication request timed out")
+            raise AuthenticationError(
+                "Authentication timed out. Please check your network connection."
+            )
+        except requests.exceptions.ConnectionError as e:
+            logger.error(f"Connection error during authentication: {e}")
+            raise AuthenticationError(
+                "Unable to connect to TradingView. Please check your network connection."
+            )
+        except AuthenticationError:
+            # Re-raise our custom exceptions
+            raise
+        except Exception as e:
+            logger.error(f"Unexpected error during authentication: {e}")
+            raise AuthenticationError(
+                f"Authentication failed with unexpected error: {type(e).__name__}: {e}"
+            )
+
+    def __create_connection(self) -> None:
+        """Create WebSocket connection to TradingView
+
+        Raises
+        ------
+        WebSocketError
+            If connection cannot be established
+        WebSocketTimeoutError
+            If connection times out
+        """
+        try:
+            logger.debug("Creating WebSocket connection to TradingView")
+
+            self.ws = create_connection(
+                "wss://data.tradingview.com/socket.io/websocket",
+                headers=self.__ws_headers,
+                timeout=self.__ws_timeout
+            )
+
+            logger.debug("WebSocket connection established successfully")
+
+        except TimeoutError as e:
+            logger.error(f"WebSocket connection timed out after {self.__ws_timeout}s")
+            raise WebSocketTimeoutError(
+                f"Connection to TradingView timed out after {self.__ws_timeout} seconds. "
+                f"Try again or increase timeout."
+            ) from e
+        except ConnectionError as e:
+            logger.error(f"WebSocket connection error: {e}")
+            raise WebSocketError(
+                f"Failed to connect to TradingView: {e}"
+            ) from e
+        except Exception as e:
+            logger.error(f"Unexpected error creating WebSocket connection: {e}")
+            raise WebSocketError(
+                f"WebSocket connection failed: {type(e).__name__}: {e}"
+            ) from e
 
     @staticmethod
     def __filter_raw_message(text):
@@ -97,21 +228,6 @@ class TvDatafeed:
         except AttributeError:
             logger.error("error in filter_raw_message")
 
-    @staticmethod
-    def __generate_session():
-        stringLength = 12
-        letters = string.ascii_lowercase
-        random_string = "".join(random.choice(letters)
-                                for i in range(stringLength))
-        return "qs_" + random_string
-
-    @staticmethod
-    def __generate_chart_session():
-        stringLength = 12
-        letters = string.ascii_lowercase
-        random_string = "".join(random.choice(letters)
-                                for i in range(stringLength))
-        return "cs_" + random_string
 
     @staticmethod
     def __prepend_header(st):
@@ -191,22 +307,63 @@ class TvDatafeed:
         exchange: str = "NSE",
         interval: Interval = Interval.in_daily,
         n_bars: int = 10,
-        fut_contract: int = None,
+        fut_contract: Optional[int] = None,
         extended_session: bool = False,
-    ) -> pd.DataFrame:
-        """get historical data
+    ) -> Optional[pd.DataFrame]:
+        """Get historical OHLCV data from TradingView
 
-        Args:
-            symbol (str): symbol name
-            exchange (str, optional): exchange, not required if symbol is in format EXCHANGE:SYMBOL. Defaults to None.
-            interval (str, optional): chart interval. Defaults to 'D'.
-            n_bars (int, optional): no of bars to download, max 5000. Defaults to 10.
-            fut_contract (int, optional): None for cash, 1 for continuous current contract in front, 2 for continuous next contract in front . Defaults to None.
-            extended_session (bool, optional): regular session if False, extended session if True, Defaults to False.
+        Parameters
+        ----------
+        symbol : str
+            Symbol name (e.g., 'BTCUSDT', 'AAPL')
+        exchange : str, optional
+            Exchange name (e.g., 'BINANCE', 'NASDAQ'). Not required if symbol
+            is in format 'EXCHANGE:SYMBOL'. Defaults to 'NSE'.
+        interval : Interval, optional
+            Chart interval. Defaults to Interval.in_daily.
+        n_bars : int, optional
+            Number of bars to download (max 5000). Defaults to 10.
+        fut_contract : int, optional
+            Futures contract: None for cash, 1 for continuous current contract,
+            2 for continuous next contract. Defaults to None.
+        extended_session : bool, optional
+            Regular session if False, extended session if True. Defaults to False.
 
-        Returns:
-            pd.Dataframe: dataframe with sohlcv as columns
+        Returns
+        -------
+        pd.DataFrame or None
+            DataFrame with columns: symbol, datetime (index), open, high, low, close, volume
+            Returns None if no data is available.
+
+        Raises
+        ------
+        DataValidationError
+            If symbol, exchange, or n_bars are invalid
+        InvalidIntervalError
+            If interval is not supported
+        WebSocketError
+            If WebSocket connection fails
+        DataNotFoundError
+            If no data is available for the requested symbol
+
+        Examples
+        --------
+        >>> tv = TvDatafeed()
+        >>> df = tv.get_hist('BTCUSDT', 'BINANCE', Interval.in_1_hour, n_bars=100)
+        >>> print(df.head())
         """
+        # Validate inputs
+        symbol = Validators.validate_symbol(symbol, allow_formatted=True)
+        exchange = Validators.validate_exchange(exchange)
+        n_bars = Validators.validate_n_bars(n_bars)
+
+        # Validate interval
+        if not isinstance(interval, Interval):
+            raise InvalidIntervalError(
+                f"Invalid interval type: {type(interval).__name__}. "
+                f"Must be an Interval enum value."
+            )
+
         symbol = self.__format_symbol(
             symbol=symbol, exchange=exchange, contract=fut_contract
         )
@@ -275,33 +432,115 @@ class TvDatafeed:
 
         raw_data = ""
 
-        logger.debug(f"getting data for {symbol}...")
-        while True:
-            try:
-                result = self.ws.recv()
-                raw_data = raw_data + result + "\n"
-            except Exception as e:
-                logger.error(e)
-                break
+        logger.debug(f"Fetching {n_bars} bars of data for {symbol} at interval {interval}")
 
-            if "series_completed" in result:
-                break
+        try:
+            while True:
+                try:
+                    result = self.ws.recv()
+                    raw_data = raw_data + result + "\n"
+                except TimeoutError as e:
+                    logger.error(f"Timeout while receiving data for {symbol}")
+                    raise WebSocketTimeoutError(
+                        f"Timeout while fetching data for {symbol}. "
+                        f"Try again or increase timeout."
+                    ) from e
+                except Exception as e:
+                    logger.error(f"Error receiving WebSocket data: {e}")
+                    raise WebSocketError(
+                        f"Error receiving data: {type(e).__name__}: {e}"
+                    ) from e
 
-        return self.__create_df(raw_data, symbol)
+                if "series_completed" in result:
+                    break
 
-    def search_symbol(self, text: str, exchange: str = ''):
+        finally:
+            # Always close the WebSocket connection
+            if self.ws:
+                try:
+                    self.ws.close()
+                except Exception as e:
+                    logger.warning(f"Error closing WebSocket: {e}")
+
+        df = self.__create_df(raw_data, symbol)
+
+        if df is None:
+            logger.warning(f"No data returned for {symbol} on {exchange}")
+            raise DataNotFoundError(
+                f"No data available for {symbol} on {exchange}. "
+                f"Please verify the symbol and exchange are correct."
+            )
+
+        logger.info(f"Successfully retrieved {len(df)} bars for {symbol}")
+        return df
+
+    def search_symbol(self, text: str, exchange: str = '') -> list:
+        """Search for symbols on TradingView
+
+        Parameters
+        ----------
+        text : str
+            Search query (e.g., 'BTC', 'AAPL', 'NIFTY')
+        exchange : str, optional
+            Limit search to specific exchange (e.g., 'BINANCE', 'NASDAQ').
+            Empty string searches all exchanges. Defaults to ''.
+
+        Returns
+        -------
+        list
+            List of dictionaries containing symbol information.
+            Each dict contains: symbol, description, exchange, type, etc.
+
+        Raises
+        ------
+        DataValidationError
+            If text is empty or invalid
+
+        Examples
+        --------
+        >>> tv = TvDatafeed()
+        >>> results = tv.search_symbol('BTC', 'BINANCE')
+        >>> for r in results:
+        ...     print(f"{r['symbol']} - {r['description']}")
+        """
+        if not text or not text.strip():
+            raise DataValidationError("Search text cannot be empty")
+
+        text = text.strip()
+
+        if exchange:
+            exchange = Validators.validate_exchange(exchange)
+
         url = self.__search_url.format(text, exchange)
 
-        symbols_list = []
         try:
-            resp = requests.get(url)
+            logger.debug(f"Searching for symbol: '{text}' on exchange: '{exchange or 'ALL'}'")
 
-            symbols_list = json.loads(resp.text.replace(
-                '</em>', '').replace('<em>', ''))
+            resp = requests.get(url, timeout=10.0)
+
+            if resp.status_code != 200:
+                logger.error(f"Symbol search failed with status code: {resp.status_code}")
+                return []
+
+            # Clean up HTML tags in response
+            cleaned_text = resp.text.replace('</em>', '').replace('<em>', '')
+            symbols_list = json.loads(cleaned_text)
+
+            logger.info(f"Found {len(symbols_list)} results for '{text}'")
+            return symbols_list
+
+        except requests.exceptions.Timeout:
+            logger.error("Symbol search request timed out")
+            return []
+        except requests.exceptions.ConnectionError as e:
+            logger.error(f"Connection error during symbol search: {e}")
+            return []
+        except json.JSONDecodeError as e:
+            logger.error(f"Failed to parse symbol search response: {e}")
+            return []
         except Exception as e:
-            logger.error(e)
-
-        return symbols_list
+            logger.error(f"Unexpected error during symbol search: {e}")
+            return []
 
 
 if __name__ == "__main__":

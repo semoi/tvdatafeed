@@ -3,7 +3,7 @@ Unit tests for TvDatafeed main class
 """
 import pytest
 from unittest.mock import Mock, patch, MagicMock
-from tvDatafeed import TvDatafeed, Interval
+from tvDatafeed import TvDatafeed, Interval, CaptchaRequiredError, AuthenticationError
 import pandas as pd
 
 
@@ -30,13 +30,15 @@ class TestTvDatafeed:
     def test_auth_failure(self):
         """Test authentication failure"""
         mock_response = Mock()
-        mock_response.json.side_effect = KeyError('user')
+        mock_response.status_code = 200
+        mock_response.json.return_value = {
+            'error': 'Invalid credentials',
+            'code': 'invalid_credentials'
+        }
 
         with patch('tvDatafeed.main.requests.post', return_value=mock_response):
-            tv = TvDatafeed(username='testuser', password='wrongpass')
-
-            # Should fall back to unauthorized token
-            assert tv.token == "unauthorized_user_token"
+            with pytest.raises(AuthenticationError):
+                TvDatafeed(username='testuser', password='wrongpass')
 
     def test_session_generation(self):
         """Test session ID generation"""
@@ -155,6 +157,68 @@ class TestTvDatafeed:
         # Should still create df with volume=0
         assert df is not None
         assert 'volume' in df.columns
+
+    def test_auth_captcha_required(self):
+        """Test authentication when CAPTCHA is required"""
+        mock_response = Mock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {
+            'error': 'Please confirm that you are not a robot by clicking the captcha box',
+            'code': 'recaptcha_required'
+        }
+
+        with patch('tvDatafeed.main.requests.post', return_value=mock_response):
+            with pytest.raises(CaptchaRequiredError) as exc_info:
+                TvDatafeed(username='testuser', password='testpass')
+
+            # Check that the exception contains the username
+            assert exc_info.value.username == 'testuser'
+            # Check that the error message mentions workaround
+            assert 'CAPTCHA' in str(exc_info.value)
+            assert 'authToken' in str(exc_info.value)
+
+    def test_auth_token_direct_usage(self):
+        """Test using pre-obtained auth token directly"""
+        tv = TvDatafeed(auth_token='test_token_direct')
+
+        assert tv.token == 'test_token_direct'
+
+    def test_auth_token_priority_over_credentials(self):
+        """Test that auth_token takes priority over username/password"""
+        mock_response = Mock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {
+            'user': {'auth_token': 'should_not_be_used'}
+        }
+
+        with patch('tvDatafeed.main.requests.post', return_value=mock_response) as mock_post:
+            tv = TvDatafeed(
+                username='testuser',
+                password='testpass',
+                auth_token='token_from_browser'
+            )
+
+            # Should use the provided token
+            assert tv.token == 'token_from_browser'
+            # Should not call auth endpoint
+            mock_post.assert_not_called()
+
+    def test_auth_generic_error(self):
+        """Test authentication with generic error"""
+        mock_response = Mock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {
+            'error': 'Invalid credentials',
+            'code': 'invalid_credentials'
+        }
+
+        with patch('tvDatafeed.main.requests.post', return_value=mock_response):
+            with pytest.raises(AuthenticationError) as exc_info:
+                TvDatafeed(username='testuser', password='wrongpass')
+
+            # Should raise AuthenticationError, not CaptchaRequiredError
+            assert not isinstance(exc_info.value, CaptchaRequiredError)
+            assert 'Invalid credentials' in str(exc_info.value)
 
 
 @pytest.mark.unit

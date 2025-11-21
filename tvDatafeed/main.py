@@ -16,6 +16,7 @@ import requests
 
 from .exceptions import (
     AuthenticationError,
+    CaptchaRequiredError,
     WebSocketError,
     WebSocketTimeoutError,
     DataNotFoundError,
@@ -61,6 +62,7 @@ class TvDatafeed:
         self,
         username: Optional[str] = None,
         password: Optional[str] = None,
+        auth_token: Optional[str] = None,
     ) -> None:
         """Create TvDatafeed object
 
@@ -70,6 +72,9 @@ class TvDatafeed:
             TradingView username. If not provided, limited unauthenticated access.
         password : str, optional
             TradingView password. Required if username is provided.
+        auth_token : str, optional
+            Pre-obtained authentication token. Use this if CAPTCHA is required.
+            If provided, username/password are ignored.
 
         Raises
         ------
@@ -77,20 +82,27 @@ class TvDatafeed:
             If only username or only password is provided (both or neither required).
         AuthenticationError
             If authentication fails with provided credentials.
+        CaptchaRequiredError
+            If TradingView requires CAPTCHA verification.
         """
         self.ws_debug = False
 
-        # Validate credentials
-        Validators.validate_credentials(username, password)
+        # If auth_token is provided directly, use it
+        if auth_token:
+            logger.info("Using pre-obtained authentication token")
+            self.token = auth_token
+        else:
+            # Validate credentials
+            Validators.validate_credentials(username, password)
 
-        self.token = self.__auth(username, password)
+            self.token = self.__auth(username, password)
 
-        if self.token is None:
-            self.token = "unauthorized_user_token"
-            logger.warning(
-                "Using unauthenticated access - data may be limited. "
-                "Provide username and password for full access."
-            )
+            if self.token is None:
+                self.token = "unauthorized_user_token"
+                logger.warning(
+                    "Using unauthenticated access - data may be limited. "
+                    "Provide username and password for full access."
+                )
 
         self.ws = None
         self.session = generate_session_id(prefix="qs")
@@ -146,7 +158,14 @@ class TvDatafeed:
 
             if 'error' in response_data:
                 error_msg = response_data.get('error', 'Unknown error')
-                logger.error(f"Authentication error: {error_msg}")
+                error_code = response_data.get('code', '')
+
+                logger.error(f"Authentication error: {error_msg} (code: {error_code})")
+
+                # Check for CAPTCHA requirement
+                if error_code == 'recaptcha_required':
+                    raise CaptchaRequiredError(username=username)
+
                 raise AuthenticationError(f"Authentication failed: {error_msg}")
 
             if 'user' not in response_data or 'auth_token' not in response_data['user']:

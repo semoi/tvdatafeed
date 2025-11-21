@@ -31,6 +31,7 @@ def mock_websocket():
 def mock_auth_response():
     """Mock successful authentication response"""
     response = Mock()
+    response.status_code = 200
     response.json.return_value = {
         'user': {
             'auth_token': 'test_token_12345',

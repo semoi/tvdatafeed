@@ -35,6 +35,27 @@ class TwoFactorRequiredError(AuthenticationError):
         super().__init__(message)
 
 
+class CaptchaRequiredError(AuthenticationError):
+    """Raised when TradingView requires CAPTCHA verification"""
+
+    def __init__(self, username: Optional[str] = None):
+        self.username = username
+        message = (
+            "TradingView requires CAPTCHA verification. "
+            "This is a security measure and cannot be bypassed automatically.\n\n"
+            "WORKAROUND:\n"
+            "1. Open your browser and log in to TradingView manually\n"
+            "2. Complete the CAPTCHA verification\n"
+            "3. Open browser DevTools (F12) → Application/Storage → Cookies\n"
+            "4. Find cookie 'authToken' for tradingview.com\n"
+            "5. Copy the token value\n"
+            "6. Use TvDatafeed with auth_token parameter:\n"
+            "   tv = TvDatafeed(auth_token='your_token_here')\n\n"
+            "See examples/captcha_workaround.py for detailed instructions."
+        )
+        super().__init__(message, username)
+
+
 class NetworkError(TvDatafeedError):
     """Base class for network-related errors"""
     pass

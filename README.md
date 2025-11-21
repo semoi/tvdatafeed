@@ -105,6 +105,21 @@ tv = TvDatafeed(username='your_username', password='your_password')
 
 ⚠️ **Security Note:** Never hardcode credentials in production code.
 
+**Option 3: Pre-obtained Token (for CAPTCHA issues)**
+
+If TradingView requires CAPTCHA verification, you'll need to extract the token manually:
+
+```bash
+export TV_AUTH_TOKEN="your_token_here"
+```
+
+```python
+import os
+tv = TvDatafeed(auth_token=os.getenv('TV_AUTH_TOKEN'))
+```
+
+See [CAPTCHA Workaround](#captcha-workaround) section for detailed instructions.
+
 ### Historical Data
 
 #### Basic Usage
@@ -227,6 +242,7 @@ Check out the [examples/](examples/) directory:
 - **[basic_usage.py](examples/basic_usage.py)** - Getting started guide
 - **[live_feed.py](examples/live_feed.py)** - Real-time data monitoring
 - **[error_handling.py](examples/error_handling.py)** - Robust error handling
+- **[captcha_workaround.py](examples/captcha_workaround.py)** - Handle CAPTCHA requirement
 
 Run examples:
 
@@ -282,12 +298,84 @@ print(results[0]['symbol'])  # Use this symbol
 - Incorrect username/password
 - 2FA enabled (not yet supported)
 - Credentials not in environment variables
+- CAPTCHA required (see below)
 
 **Solution:**
 ```bash
 export TV_USERNAME="your_username"
 export TV_PASSWORD="your_password"
 ```
+
+### CAPTCHA Workaround
+
+TradingView may require CAPTCHA verification for security. When this happens, you'll see:
+
+```
+CaptchaRequiredError: TradingView requires CAPTCHA verification.
+This is a security measure and cannot be bypassed automatically.
+```
+
+**Solution: Extract auth token manually**
+
+#### Step 1: Log in via Browser
+
+1. Open https://www.tradingview.com in your browser
+2. Log in and complete the CAPTCHA
+3. Wait for successful login
+
+#### Step 2: Extract Token from Browser
+
+**Chrome:**
+1. Press F12 (or Ctrl+Shift+I / Cmd+Option+I)
+2. Go to "Application" tab
+3. Expand "Cookies" → "https://www.tradingview.com"
+4. Find cookie named "authToken"
+5. Copy the entire value
+
+**Firefox:**
+1. Press F12 (or Ctrl+Shift+I / Cmd+Option+I)
+2. Go to "Storage" tab
+3. Expand "Cookies" → "https://www.tradingview.com"
+4. Find cookie named "authToken"
+5. Copy the entire value
+
+#### Step 3: Use Token in Code
+
+**Method A: Environment Variable (Recommended)**
+
+```bash
+export TV_AUTH_TOKEN="paste_your_token_here"
+```
+
+```python
+import os
+from tvDatafeed import TvDatafeed
+
+tv = TvDatafeed(auth_token=os.getenv('TV_AUTH_TOKEN'))
+```
+
+**Method B: Direct Usage (Testing Only)**
+
+```python
+from tvDatafeed import TvDatafeed
+
+tv = TvDatafeed(auth_token='your_token_here')
+```
+
+#### Complete Example
+
+See [examples/captcha_workaround.py](examples/captcha_workaround.py) for a complete working example with error handling:
+
+```bash
+python examples/captcha_workaround.py
+```
+
+#### Important Notes
+
+- ⏱️ **Token Expiration:** Tokens expire after some time. Extract a new one if needed.
+- 🔒 **Security:** Treat your token like a password. Never commit it to version control.
+- 🔄 **Session-tied:** Token is tied to your browser session. Logging out invalidates it.
+- 📝 **Storage:** Store in environment variables or secure configuration files.
 
 ### "Timeout errors"
 

@@ -249,13 +249,13 @@ class TvDatafeed:
     @staticmethod
     def __create_df(raw_data, symbol):
         try:
-            out = re.search('"s":\[(.+?)\}\]', raw_data).group(1)
+            out = re.search(r'"s":\[(.+?)\}\]', raw_data).group(1)
             x = out.split(',{"')
             data = list()
             volume_data = True
 
             for xi in x:
-                xi = re.split("\[|:|,|\]", xi)
+                xi = re.split(r"\[|:|,|\]", xi)
                 ts = datetime.datetime.fromtimestamp(float(xi[4]))
 
                 row = [ts]

@@ -422,3 +422,182 @@ class TestRateLimiting:
 
         # All requests should complete
         assert len(results) == 5
+
+
+@pytest.mark.integration
+class TestSymbolFormatErrors:
+    """Test symbol format error scenarios (Issue #63)"""
+
+    def test_formatted_symbol_exchange_mismatch(self):
+        """Test when formatted symbol contains different exchange than parameter"""
+        # Just test the __format_symbol method directly
+        tv = TvDatafeed()
+
+        # Symbol has BINANCE but we pass NYSE - should use symbol's exchange
+        formatted = tv._TvDatafeed__format_symbol('BINANCE:BTCUSDT', 'NYSE')
+
+        # Should keep BINANCE from symbol
+        assert formatted == 'BINANCE:BTCUSDT'
+
+    def test_unformatted_symbol_with_exchange(self):
+        """Test unformatted symbol with exchange parameter"""
+        tv = TvDatafeed()
+
+        # Symbol without exchange, should format with provided exchange
+        formatted = tv._TvDatafeed__format_symbol('BTCUSDT', 'BINANCE')
+
+        # Should format to BINANCE:BTCUSDT
+        assert formatted == 'BINANCE:BTCUSDT'
+
+    def test_search_symbol_empty_results(self):
+        """Test search_symbol when no results found"""
+        with patch('tvDatafeed.main.requests.get') as mock_get:
+            mock_response = Mock()
+            mock_response.status_code = 200
+            mock_response.text = '[]'  # Empty results
+            mock_get.return_value = mock_response
+
+            tv = TvDatafeed()
+            results = tv.search_symbol('NONEXISTENTSYMBOL', 'BINANCE')
+
+            # Should return empty list, not raise exception
+            assert results == []
+
+    def test_search_symbol_network_error(self):
+        """Test search_symbol with network error"""
+        with patch('tvDatafeed.main.requests.get') as mock_get:
+            mock_get.side_effect = Exception("Network error")
+
+            tv = TvDatafeed()
+            results = tv.search_symbol('BTC', 'BINANCE')
+
+            # Should return empty list, not crash
+            assert results == []
+
+    def test_search_symbol_invalid_json(self):
+        """Test search_symbol with invalid JSON response"""
+        with patch('tvDatafeed.main.requests.get') as mock_get:
+            mock_response = Mock()
+            mock_response.status_code = 200
+            mock_response.text = 'INVALID JSON{'
+            mock_get.return_value = mock_response
+
+            tv = TvDatafeed()
+            results = tv.search_symbol('BTC', 'BINANCE')
+
+            # Should return empty list, not crash
+            assert results == []
+
+    def test_search_symbol_empty_query(self):
+        """Test search_symbol with empty query"""
+        tv = TvDatafeed()
+
+        with pytest.raises(DataValidationError, match="Search text cannot be empty"):
+            tv.search_symbol('', 'BINANCE')
+
+    def test_search_symbol_whitespace_query(self):
+        """Test search_symbol with whitespace-only query"""
+        tv = TvDatafeed()
+
+        with pytest.raises(DataValidationError, match="Search text cannot be empty"):
+            tv.search_symbol('   ', 'BINANCE')
+
+
+@pytest.mark.integration
+class TestTimeoutConfiguration:
+    """Test timeout configuration scenarios (Issue #63)"""
+
+    def test_custom_timeout_parameter(self):
+        """Test creating TvDatafeed with custom timeout"""
+        tv = TvDatafeed(ws_timeout=30.0)
+
+        assert tv.ws_timeout == 30.0
+
+    def test_timeout_from_environment(self):
+        """Test timeout configuration from environment variable"""
+        import os
+
+        original_timeout = os.environ.get('TV_WS_TIMEOUT')
+
+        try:
+            os.environ['TV_WS_TIMEOUT'] = '60.0'
+            tv = TvDatafeed()
+
+            assert tv.ws_timeout == 60.0
+
+        finally:
+            # Restore original value
+            if original_timeout:
+                os.environ['TV_WS_TIMEOUT'] = original_timeout
+            else:
+                os.environ.pop('TV_WS_TIMEOUT', None)
+
+    def test_timeout_parameter_overrides_environment(self):
+        """Test that parameter overrides environment variable"""
+        import os
+
+        original_timeout = os.environ.get('TV_WS_TIMEOUT')
+
+        try:
+            os.environ['TV_WS_TIMEOUT'] = '60.0'
+            tv = TvDatafeed(ws_timeout=15.0)
+
+            # Parameter should win
+            assert tv.ws_timeout == 15.0
+
+        finally:
+            if original_timeout:
+                os.environ['TV_WS_TIMEOUT'] = original_timeout
+            else:
+                os.environ.pop('TV_WS_TIMEOUT', None)
+
+    def test_negative_timeout_no_timeout(self):
+        """Test that -1 means no timeout"""
+        tv = TvDatafeed(ws_timeout=-1)
+
+        assert tv.ws_timeout == -1.0
+
+    def test_invalid_timeout_falls_back_to_default(self):
+        """Test that invalid timeout falls back to default"""
+        import os
+
+        original_timeout = os.environ.get('TV_WS_TIMEOUT')
+
+        try:
+            os.environ['TV_WS_TIMEOUT'] = 'not_a_number'
+            tv = TvDatafeed()
+
+            # Should fall back to default (5 seconds)
+            assert tv.ws_timeout == 5.0
+
+        finally:
+            if original_timeout:
+                os.environ['TV_WS_TIMEOUT'] = original_timeout
+            else:
+                os.environ.pop('TV_WS_TIMEOUT', None)
+
+    @patch('tvDatafeed.main.create_connection')
+    def test_timeout_used_in_websocket_connection(self, mock_create_connection):
+        """Test that configured timeout is used in WebSocket connection"""
+        mock_ws = Mock()
+        mock_create_connection.return_value = mock_ws
+
+        tv = TvDatafeed(ws_timeout=45.0)
+        tv._TvDatafeed__create_connection()
+
+        # Check that timeout was passed to create_connection
+        call_args = mock_create_connection.call_args
+        assert call_args[1]['timeout'] == 45.0
+
+    @patch('tvDatafeed.main.create_connection')
+    def test_no_timeout_none_passed_to_websocket(self, mock_create_connection):
+        """Test that -1 timeout passes None to WebSocket"""
+        mock_ws = Mock()
+        mock_create_connection.return_value = mock_ws
+
+        tv = TvDatafeed(ws_timeout=-1)
+        tv._TvDatafeed__create_connection()
+
+        # Check that None was passed (no timeout)
+        call_args = mock_create_connection.call_args
+        assert call_args[1]['timeout'] is None

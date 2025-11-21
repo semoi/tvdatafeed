@@ -276,6 +276,161 @@ Interval.in_monthly    # 1 month
 - **Commodities:** `MCX`, `NYMEX`, `COMEX`
 - **Forex:** `FX`, `OANDA`
 
+## 📌 Symbol Format Guide
+
+Understanding the correct symbol format is crucial for reliable data retrieval.
+
+### Format: EXCHANGE:SYMBOL
+
+TradingView uses the format `EXCHANGE:SYMBOL` to uniquely identify instruments. While the library can work with just the symbol name, **using the full format is more reliable**.
+
+#### ✅ Recommended (with exchange prefix)
+
+```python
+# Crypto
+df = tv.get_hist('BINANCE:BTCUSDT', 'BINANCE', Interval.in_1_hour)
+
+# Stocks
+df = tv.get_hist('NASDAQ:AAPL', 'NASDAQ', Interval.in_daily)
+
+# Futures
+df = tv.get_hist('NSE:NIFTY', 'NSE', Interval.in_15_minute, fut_contract=1)
+```
+
+#### ⚠️ Alternative (symbol only)
+
+```python
+# Works but less reliable
+df = tv.get_hist('BTCUSDT', 'BINANCE', Interval.in_1_hour)
+```
+
+### Finding the Correct Symbol Format
+
+#### Method 1: Use search_symbol()
+
+```python
+from tvDatafeed import TvDatafeed
+
+tv = TvDatafeed()
+
+# Search for Bitcoin on Binance
+results = tv.search_symbol('BTC', 'BINANCE')
+
+# Display formatted results
+print(tv.format_search_results(results))
+
+# Use the first result
+if results:
+    exchange = results[0]['exchange']
+    symbol = results[0]['symbol']
+    full_symbol = f"{exchange}:{symbol}"
+
+    df = tv.get_hist(full_symbol, exchange, Interval.in_1_hour, n_bars=100)
+```
+
+#### Method 2: Manual Search on TradingView
+
+1. Go to [tradingview.com](https://www.tradingview.com)
+2. Use the search bar to find your instrument
+3. Look at the URL or chart title for the format
+4. Example: Bitcoin on Binance shows as `BINANCE:BTCUSDT`
+
+### Common Symbol Examples
+
+**Cryptocurrency:**
+```python
+'BINANCE:BTCUSDT'   # Bitcoin/Tether on Binance
+'COINBASE:BTCUSD'   # Bitcoin/USD on Coinbase
+'BINANCE:ETHUSDT'   # Ethereum/Tether on Binance
+'KRAKEN:BTCEUR'     # Bitcoin/Euro on Kraken
+```
+
+**US Stocks:**
+```python
+'NASDAQ:AAPL'       # Apple Inc.
+'NYSE:TSLA'         # Tesla Inc.
+'NASDAQ:GOOGL'      # Alphabet Inc.
+'NYSE:JPM'          # JPMorgan Chase
+```
+
+**Indian Markets:**
+```python
+'NSE:NIFTY'         # Nifty 50 Index
+'NSE:RELIANCE'      # Reliance Industries
+'BSE:SENSEX'        # Sensex Index
+```
+
+**Forex:**
+```python
+'FX:EURUSD'         # Euro/US Dollar
+'OANDA:GBPJPY'      # British Pound/Japanese Yen
+```
+
+**Commodities:**
+```python
+'MCX:CRUDEOIL'      # Crude Oil on MCX
+'NYMEX:CL1!'        # WTI Crude Oil Futures
+'COMEX:GC1!'        # Gold Futures
+```
+
+### Handling Timeout Issues
+
+If you're experiencing timeout errors, you can increase the WebSocket timeout:
+
+#### Method 1: Parameter (Recommended)
+
+```python
+from tvDatafeed import TvDatafeed
+
+# Increase timeout to 30 seconds
+tv = TvDatafeed(ws_timeout=30.0)
+
+df = tv.get_hist('BINANCE:BTCUSDT', 'BINANCE', Interval.in_1_hour)
+```
+
+#### Method 2: Environment Variable
+
+```bash
+# Set in shell or .env file
+export TV_WS_TIMEOUT=30.0
+```
+
+```python
+# Will automatically use TV_WS_TIMEOUT
+tv = TvDatafeed()
+```
+
+#### Method 3: NetworkConfig
+
+```python
+from tvDatafeed import TvDatafeed
+from tvDatafeed.config import NetworkConfig
+
+config = NetworkConfig(recv_timeout=30.0)
+# Note: Currently NetworkConfig is read from environment
+# Use TV_RECV_TIMEOUT environment variable instead
+```
+
+```bash
+export TV_RECV_TIMEOUT=30.0
+```
+
+### Best Practices
+
+1. **Always use EXCHANGE:SYMBOL format** when possible
+2. **Use search_symbol()** to find correct symbol names
+3. **Test with small n_bars** first (e.g., n_bars=10)
+4. **Increase timeout** for slow connections or large data requests
+5. **Enable debug logging** to see what's happening:
+
+```python
+import logging
+
+logging.basicConfig(level=logging.DEBUG)
+tv = TvDatafeed()
+tv.ws_debug = True  # See WebSocket messages
+```
+
 ## 🔧 Troubleshooting
 
 ### "No data returned"

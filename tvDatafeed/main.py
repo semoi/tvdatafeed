@@ -8,6 +8,7 @@ import datetime
 import enum
 import json
 import logging
+import os
 import re
 from typing import Optional
 import pandas as pd
@@ -63,6 +64,7 @@ class TvDatafeed:
         username: Optional[str] = None,
         password: Optional[str] = None,
         auth_token: Optional[str] = None,
+        ws_timeout: Optional[float] = None,
     ) -> None:
         """Create TvDatafeed object
 
@@ -75,6 +77,12 @@ class TvDatafeed:
         auth_token : str, optional
             Pre-obtained authentication token. Use this if CAPTCHA is required.
             If provided, username/password are ignored.
+        ws_timeout : float, optional
+            WebSocket timeout in seconds. If not provided, uses:
+            1. Environment variable TV_WS_TIMEOUT if set
+            2. NetworkConfig.recv_timeout if available
+            3. Default value of 5 seconds
+            Set to -1 for no timeout (not recommended).
 
         Raises
         ------
@@ -84,8 +92,47 @@ class TvDatafeed:
             If authentication fails with provided credentials.
         CaptchaRequiredError
             If TradingView requires CAPTCHA verification.
+
+        Examples
+        --------
+        >>> # Use default timeout
+        >>> tv = TvDatafeed()
+        >>>
+        >>> # Use custom timeout
+        >>> tv = TvDatafeed(ws_timeout=30.0)
+        >>>
+        >>> # Use environment variable
+        >>> # export TV_WS_TIMEOUT=60.0
+        >>> tv = TvDatafeed()  # Will use 60s from env
         """
         self.ws_debug = False
+
+        # Configure WebSocket timeout
+        if ws_timeout is not None:
+            # Explicit parameter takes priority
+            self.ws_timeout = Validators.validate_timeout(ws_timeout)
+            logger.info(f"Using WebSocket timeout: {self.ws_timeout}s (from parameter)")
+        else:
+            # Try environment variable
+            env_timeout = os.getenv('TV_WS_TIMEOUT')
+            if env_timeout:
+                try:
+                    self.ws_timeout = Validators.validate_timeout(float(env_timeout))
+                    logger.info(f"Using WebSocket timeout: {self.ws_timeout}s (from TV_WS_TIMEOUT)")
+                except (ValueError, ConfigurationError) as e:
+                    logger.warning(f"Invalid TV_WS_TIMEOUT value: {e}. Using default.")
+                    self.ws_timeout = self.__ws_timeout
+            else:
+                # Try NetworkConfig
+                try:
+                    from .config import NetworkConfig
+                    config = NetworkConfig.from_env()
+                    self.ws_timeout = config.recv_timeout
+                    logger.info(f"Using WebSocket timeout: {self.ws_timeout}s (from NetworkConfig)")
+                except (ImportError, Exception):
+                    # Fall back to default
+                    self.ws_timeout = self.__ws_timeout
+                    logger.debug(f"Using default WebSocket timeout: {self.ws_timeout}s")
 
         # If auth_token is provided directly, use it
         if auth_token:
@@ -208,23 +255,28 @@ class TvDatafeed:
             If connection cannot be established
         WebSocketTimeoutError
             If connection times out
+
+        Notes
+        -----
+        Uses the timeout configured in __init__(). Default is 5 seconds,
+        but can be customized via ws_timeout parameter or TV_WS_TIMEOUT environment variable.
         """
         try:
-            logger.debug("Creating WebSocket connection to TradingView")
+            logger.debug(f"Creating WebSocket connection to TradingView (timeout: {self.ws_timeout}s)")
 
             self.ws = create_connection(
                 "wss://data.tradingview.com/socket.io/websocket",
                 headers=self.__ws_headers,
-                timeout=self.__ws_timeout
+                timeout=self.ws_timeout if self.ws_timeout != -1 else None
             )
 
             logger.debug("WebSocket connection established successfully")
 
         except TimeoutError as e:
-            logger.error(f"WebSocket connection timed out after {self.__ws_timeout}s")
+            logger.error(f"WebSocket connection timed out after {self.ws_timeout}s")
             raise WebSocketTimeoutError(
-                f"Connection to TradingView timed out after {self.__ws_timeout} seconds. "
-                f"Try again or increase timeout."
+                f"Connection to TradingView timed out after {self.ws_timeout} seconds. "
+                f"Try again or increase timeout with ws_timeout parameter or TV_WS_TIMEOUT env variable."
             ) from e
         except ConnectionError as e:
             logger.error(f"WebSocket connection error: {e}")
@@ -306,10 +358,44 @@ class TvDatafeed:
 
     @staticmethod
     def __format_symbol(symbol, exchange, contract: int = None):
+        """
+        Format symbol to TradingView format
 
+        Parameters
+        ----------
+        symbol : str
+            Symbol name. Can be "SYMBOL" or "EXCHANGE:SYMBOL"
+        exchange : str
+            Exchange name (used if symbol doesn't contain exchange)
+        contract : int, optional
+            Futures contract number (1=front month, 2=next month, etc.)
+
+        Returns
+        -------
+        str
+            Formatted symbol in TradingView format
+
+        Notes
+        -----
+        - If symbol already contains ":", the exchange is extracted from it
+        - If symbol doesn't contain ":", the provided exchange is prepended
+        - Logs info when exchange is auto-detected from symbol
+        """
+
+        # Symbol already formatted with exchange (e.g., "BINANCE:BTCUSDT")
         if ":" in symbol:
-            pass
-        elif contract is None:
+            # Extract exchange from symbol for logging
+            detected_exchange = symbol.split(':')[0]
+            if detected_exchange != exchange:
+                logger.info(
+                    f"Symbol '{symbol}' already contains exchange '{detected_exchange}'. "
+                    f"Ignoring provided exchange parameter '{exchange}'."
+                )
+            # Use symbol as-is
+            return symbol
+
+        # Format symbol with exchange
+        if contract is None:
             symbol = f"{exchange}:{symbol}"
 
         elif isinstance(contract, int):
@@ -318,6 +404,7 @@ class TvDatafeed:
         else:
             raise ValueError("not a valid contract")
 
+        logger.debug(f"Formatted symbol: {symbol}")
         return symbol
 
     def get_hist(
@@ -509,6 +596,7 @@ class TvDatafeed:
         list
             List of dictionaries containing symbol information.
             Each dict contains: symbol, description, exchange, type, etc.
+            Returns empty list if search fails or no results found.
 
         Raises
         ------
@@ -520,10 +608,19 @@ class TvDatafeed:
         >>> tv = TvDatafeed()
         >>> results = tv.search_symbol('BTC', 'BINANCE')
         >>> for r in results:
-        ...     print(f"{r['symbol']} - {r['description']}")
+        ...     # Format for use in get_hist()
+        ...     full_symbol = f"{r['exchange']}:{r['symbol']}"
+        ...     print(f"{full_symbol} - {r['description']}")
+
+        Notes
+        -----
+        Use the returned symbol with its exchange in get_hist():
+            results = tv.search_symbol('BTC', 'BINANCE')
+            symbol = f"{results[0]['exchange']}:{results[0]['symbol']}"
+            data = tv.get_hist(symbol, 'BINANCE', Interval.in_1_hour)
         """
         if not text or not text.strip():
-            raise DataValidationError("Search text cannot be empty")
+            raise DataValidationError("search_text", text, "Search text cannot be empty")
 
         text = text.strip()
 
@@ -539,27 +636,113 @@ class TvDatafeed:
 
             if resp.status_code != 200:
                 logger.error(f"Symbol search failed with status code: {resp.status_code}")
+                logger.warning(
+                    f"TradingView search returned HTTP {resp.status_code}. "
+                    f"Search manually on tradingview.com and use format 'EXCHANGE:SYMBOL'"
+                )
                 return []
 
             # Clean up HTML tags in response
             cleaned_text = resp.text.replace('</em>', '').replace('<em>', '')
-            symbols_list = json.loads(cleaned_text)
+
+            try:
+                symbols_list = json.loads(cleaned_text)
+            except json.JSONDecodeError as e:
+                logger.error(f"Failed to parse symbol search response: {e}")
+                logger.warning(
+                    "Search response parsing failed. "
+                    "Try searching manually on tradingview.com for the correct symbol format."
+                )
+                return []
+
+            if not symbols_list:
+                logger.warning(
+                    f"No results found for '{text}' on {exchange or 'any exchange'}. "
+                    f"Try a different search term or check tradingview.com."
+                )
+                return []
 
             logger.info(f"Found {len(symbols_list)} results for '{text}'")
+
+            # Log formatted symbols for easy copy-paste
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug("Search results (format: EXCHANGE:SYMBOL):")
+                for i, result in enumerate(symbols_list[:5], 1):  # Show first 5
+                    formatted = f"{result.get('exchange', 'N/A')}:{result.get('symbol', 'N/A')}"
+                    description = result.get('description', 'N/A')
+                    logger.debug(f"  {i}. {formatted} - {description}")
+
             return symbols_list
 
         except requests.exceptions.Timeout:
             logger.error("Symbol search request timed out")
+            logger.warning(
+                "Search request timed out. Check your internet connection or try again later."
+            )
             return []
         except requests.exceptions.ConnectionError as e:
             logger.error(f"Connection error during symbol search: {e}")
-            return []
-        except json.JSONDecodeError as e:
-            logger.error(f"Failed to parse symbol search response: {e}")
+            logger.warning(
+                "Connection error during search. Check your internet connection."
+            )
             return []
         except Exception as e:
             logger.error(f"Unexpected error during symbol search: {e}")
+            logger.warning(
+                f"Unexpected error during search: {type(e).__name__}. "
+                f"Try searching manually on tradingview.com."
+            )
             return []
+
+    @staticmethod
+    def format_search_results(results: list, max_results: int = 10) -> str:
+        """
+        Format search results for display
+
+        Parameters
+        ----------
+        results : list
+            Results from search_symbol()
+        max_results : int
+            Maximum number of results to format
+
+        Returns
+        -------
+        str
+            Formatted string with symbols ready to use in get_hist()
+
+        Examples
+        --------
+        >>> results = tv.search_symbol('BTC', 'BINANCE')
+        >>> print(tv.format_search_results(results))
+        """
+        if not results:
+            return "No results found."
+
+        lines = [f"Found {len(results)} results (showing first {min(len(results), max_results)}):\n"]
+
+        for i, result in enumerate(results[:max_results], 1):
+            exchange = result.get('exchange', 'N/A')
+            symbol = result.get('symbol', 'N/A')
+            description = result.get('description', 'N/A')
+            symbol_type = result.get('type', 'N/A')
+
+            # Format for direct use in get_hist()
+            full_symbol = f"{exchange}:{symbol}"
+
+            lines.append(
+                f"{i:2d}. {full_symbol:30s} | {description:40s} | Type: {symbol_type}"
+            )
+
+        lines.append(
+            f"\nUsage: tv.get_hist('EXCHANGE:SYMBOL', 'EXCHANGE', interval, n_bars)"
+        )
+        lines.append(
+            f"Example: tv.get_hist('{results[0].get('exchange')}:{results[0].get('symbol')}', "
+            f"'{results[0].get('exchange')}', Interval.in_1_hour, n_bars=100)"
+        )
+
+        return "\n".join(lines)
 
 
 if __name__ == "__main__":

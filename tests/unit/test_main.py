@@ -78,6 +78,15 @@ class TestTvDatafeed:
 
         assert formatted == 'BINANCE:BTCUSDT'
 
+    def test_format_symbol_already_formatted_different_exchange(self):
+        """Test symbol that's already formatted with different exchange parameter"""
+        tv = TvDatafeed()
+
+        # Symbol has BINANCE but we pass NYSE - should use symbol's exchange
+        formatted = tv._TvDatafeed__format_symbol('BINANCE:BTCUSDT', 'NYSE')
+
+        assert formatted == 'BINANCE:BTCUSDT'  # Keeps BINANCE from symbol
+
     def test_format_symbol_invalid_contract(self):
         """Test symbol formatting with invalid contract type"""
         tv = TvDatafeed()
@@ -219,6 +228,149 @@ class TestTvDatafeed:
             # Should raise AuthenticationError, not CaptchaRequiredError
             assert not isinstance(exc_info.value, CaptchaRequiredError)
             assert 'Invalid credentials' in str(exc_info.value)
+
+    def test_ws_timeout_default(self):
+        """Test that default WebSocket timeout is used"""
+        tv = TvDatafeed()
+
+        # Default timeout is either 5s (hardcoded) or 30s (from NetworkConfig)
+        # depending on whether NetworkConfig is available
+        assert tv.ws_timeout in [5.0, 30.0]
+        # If NetworkConfig is available, it should use its recv_timeout (30.0)
+        # Otherwise, it falls back to __ws_timeout (5.0)
+
+    def test_ws_timeout_custom_parameter(self):
+        """Test custom WebSocket timeout via parameter"""
+        tv = TvDatafeed(ws_timeout=30.0)
+
+        assert tv.ws_timeout == 30.0
+
+    def test_ws_timeout_no_timeout(self):
+        """Test WebSocket with no timeout (-1)"""
+        tv = TvDatafeed(ws_timeout=-1)
+
+        assert tv.ws_timeout == -1.0
+
+    def test_ws_timeout_from_env_variable(self):
+        """Test WebSocket timeout from environment variable"""
+        import os
+
+        # Set environment variable
+        os.environ['TV_WS_TIMEOUT'] = '45.0'
+
+        try:
+            tv = TvDatafeed()
+            assert tv.ws_timeout == 45.0
+        finally:
+            # Clean up
+            os.environ.pop('TV_WS_TIMEOUT', None)
+
+    def test_ws_timeout_parameter_overrides_env(self):
+        """Test that parameter overrides environment variable"""
+        import os
+
+        os.environ['TV_WS_TIMEOUT'] = '45.0'
+
+        try:
+            tv = TvDatafeed(ws_timeout=20.0)
+            # Parameter should take priority
+            assert tv.ws_timeout == 20.0
+        finally:
+            os.environ.pop('TV_WS_TIMEOUT', None)
+
+    def test_ws_timeout_invalid_env_variable(self):
+        """Test handling of invalid environment variable"""
+        import os
+
+        os.environ['TV_WS_TIMEOUT'] = 'invalid'
+
+        try:
+            tv = TvDatafeed()
+            # Should fall back to default
+            assert tv.ws_timeout == 5.0
+        finally:
+            os.environ.pop('TV_WS_TIMEOUT', None)
+
+    def test_format_search_results_empty(self):
+        """Test formatting empty search results"""
+        tv = TvDatafeed()
+
+        formatted = tv.format_search_results([])
+
+        assert 'No results found' in formatted
+
+    def test_format_search_results_single(self):
+        """Test formatting single search result"""
+        tv = TvDatafeed()
+
+        results = [
+            {
+                'exchange': 'BINANCE',
+                'symbol': 'BTCUSDT',
+                'description': 'Bitcoin / TetherUS',
+                'type': 'crypto'
+            }
+        ]
+
+        formatted = tv.format_search_results(results)
+
+        assert 'BINANCE:BTCUSDT' in formatted
+        assert 'Bitcoin / TetherUS' in formatted
+        assert 'crypto' in formatted
+        assert 'Found 1 results' in formatted
+
+    def test_format_search_results_multiple(self):
+        """Test formatting multiple search results"""
+        tv = TvDatafeed()
+
+        results = [
+            {
+                'exchange': 'BINANCE',
+                'symbol': 'BTCUSDT',
+                'description': 'Bitcoin / TetherUS',
+                'type': 'crypto'
+            },
+            {
+                'exchange': 'COINBASE',
+                'symbol': 'BTCUSD',
+                'description': 'Bitcoin / US Dollar',
+                'type': 'crypto'
+            },
+            {
+                'exchange': 'KRAKEN',
+                'symbol': 'BTCEUR',
+                'description': 'Bitcoin / Euro',
+                'type': 'crypto'
+            }
+        ]
+
+        formatted = tv.format_search_results(results, max_results=2)
+
+        # Should only show first 2
+        assert 'BINANCE:BTCUSDT' in formatted
+        assert 'COINBASE:BTCUSD' in formatted
+        # Third should not be included
+        assert 'KRAKEN:BTCEUR' not in formatted
+        assert 'showing first 2' in formatted
+
+    def test_format_search_results_includes_usage(self):
+        """Test that formatted results include usage examples"""
+        tv = TvDatafeed()
+
+        results = [
+            {
+                'exchange': 'BINANCE',
+                'symbol': 'BTCUSDT',
+                'description': 'Bitcoin / TetherUS',
+                'type': 'crypto'
+            }
+        ]
+
+        formatted = tv.format_search_results(results)
+
+        assert 'Usage:' in formatted
+        assert 'tv.get_hist' in formatted
+        assert 'Example:' in formatted
 
 
 @pytest.mark.unit

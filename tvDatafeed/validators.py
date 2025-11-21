@@ -36,7 +36,7 @@ class Validators:
         Parameters
         ----------
         symbol : str
-            Symbol to validate
+            Symbol to validate. Can be in format "SYMBOL" or "EXCHANGE:SYMBOL"
         allow_formatted : bool
             Whether to allow already formatted symbols (e.g., "BINANCE:BTCUSDT")
 
@@ -49,6 +49,12 @@ class Validators:
         ------
         DataValidationError
             If symbol is invalid
+
+        Notes
+        -----
+        - Symbol format "EXCHANGE:SYMBOL" is preferred for reliability
+        - If symbol has no exchange prefix, one must be provided in get_hist()
+        - Common exchanges: BINANCE, NASDAQ, NSE, COINBASE, etc.
         """
         if not symbol or not isinstance(symbol, str):
             raise DataValidationError("symbol", symbol, "Symbol must be a non-empty string")
@@ -59,14 +65,32 @@ class Validators:
         if allow_formatted and ':' in symbol:
             parts = symbol.split(':')
             if len(parts) != 2:
-                raise DataValidationError("symbol", symbol, "Formatted symbol must be EXCHANGE:SYMBOL")
+                raise DataValidationError(
+                    "symbol", symbol,
+                    "Formatted symbol must be EXCHANGE:SYMBOL (e.g., 'BINANCE:BTCUSDT')"
+                )
+
+            # Validate both parts
+            exchange_part, symbol_part = parts
+            if not Validators.EXCHANGE_PATTERN.match(exchange_part):
+                raise DataValidationError(
+                    "symbol", symbol,
+                    f"Exchange '{exchange_part}' must be alphanumeric, 1-20 characters"
+                )
+            if not Validators.SYMBOL_PATTERN.match(symbol_part):
+                raise DataValidationError(
+                    "symbol", symbol,
+                    f"Symbol '{symbol_part}' must be alphanumeric, 1-20 characters"
+                )
+
             return symbol
 
         # Validate simple symbol
         if not Validators.SYMBOL_PATTERN.match(symbol):
             raise DataValidationError(
                 "symbol", symbol,
-                "Symbol must be alphanumeric, 1-20 characters"
+                "Symbol must be alphanumeric, 1-20 characters. "
+                "TIP: Use format 'EXCHANGE:SYMBOL' (e.g., 'BINANCE:BTCUSDT') for better reliability."
             )
 
         return symbol

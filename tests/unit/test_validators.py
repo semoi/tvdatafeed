@@ -26,6 +26,28 @@ class TestValidators:
         assert Validators.validate_symbol("BINANCE:BTCUSDT") == "BINANCE:BTCUSDT"
         assert Validators.validate_symbol("binance:btcusdt") == "BINANCE:BTCUSDT"
 
+    def test_validate_symbol_formatted_validates_parts(self):
+        """Test that formatted symbols validate both exchange and symbol parts"""
+        # Valid formatted symbol
+        assert Validators.validate_symbol("NASDAQ:AAPL") == "NASDAQ:AAPL"
+
+        # Invalid exchange part
+        with pytest.raises(DataValidationError, match="Exchange .* must be alphanumeric"):
+            Validators.validate_symbol("NASDAQ-US:AAPL")
+
+        # Invalid symbol part
+        with pytest.raises(DataValidationError, match="Symbol .* must be alphanumeric"):
+            Validators.validate_symbol("NASDAQ:AAPL-USD")
+
+        # Too many colons
+        with pytest.raises(DataValidationError, match="Formatted symbol must be EXCHANGE:SYMBOL"):
+            Validators.validate_symbol("NASDAQ:AAPL:USD")
+
+    def test_validate_symbol_includes_tip_message(self):
+        """Test that validation error for simple symbol includes format tip"""
+        with pytest.raises(DataValidationError, match="TIP: Use format 'EXCHANGE:SYMBOL'"):
+            Validators.validate_symbol("BTC-USD")  # Invalid character triggers helpful message
+
     def test_validate_symbol_invalid(self):
         """Test validating invalid symbols"""
         with pytest.raises(DataValidationError):

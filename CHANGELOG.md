@@ -7,6 +7,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed - GitHub Issues Resolved
+- **Issue #70 - SyntaxWarning: invalid escape sequence**
+  - Fixed regex patterns in `__create_df()` to use raw strings
+  - Changed `'"s":\[(.+?)\}\]'` to `r'"s":\[(.+?)\}\]'`
+  - Changed `"\[|:|,|\]"` to `r"\[|:|,|\]"`
+  - Resolves Python 3.12+ warnings
+  - Commit: cb5b17c
+
+- **Issue #62 - Token is None due to recaptcha_required**
+  - NEW: `CaptchaRequiredError` exception with detailed instructions
+  - Detects `recaptcha_required` error code from TradingView
+  - NEW: `auth_token` parameter for pre-obtained tokens
+  - TvDatafeed(auth_token='...') bypasses CAPTCHA
+  - Comprehensive workaround documentation in README
+  - NEW: examples/captcha_workaround.py with complete guide
+  - Tests for CAPTCHA detection and token usage
+  - Commit: db8a8ed
+
+- **Issue #63 - tv.get_hist() stopped working**
+  - Enhanced symbol validation with format detection
+  - Improved `__format_symbol()` with auto-detection
+  - Robust `search_symbol()` never crashes on errors
+  - NEW: `format_search_results()` helper method
+  - NEW: Configurable WebSocket timeout via parameter
+  - NEW: Environment variable support `TV_WS_TIMEOUT`
+  - 3 methods to configure timeout (parameter > env > config)
+  - "Symbol Format Guide" section in README
+  - NEW: examples/symbol_format_guide.py (445 lines)
+  - 14 new tests for symbol format and timeout
+  - Commit: d96fa70
+
 ### Added
 - **Custom exception hierarchy (tvDatafeed/exceptions.py)**
   - TvDatafeedError base class with context support

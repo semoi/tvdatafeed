@@ -221,6 +221,9 @@ TV_MAX_RETRIES=3
 
 # Debug
 TV_DEBUG=false
+
+# Logging
+TV_VERBOSE=true
 ```
 
 ### Using Configuration
@@ -235,6 +238,104 @@ config = TvDatafeedConfig.from_env()
 config = TvDatafeedConfig.default()
 ```
 
+### Verbose Logging
+
+Control log verbosity to reduce noise in production:
+
+#### Method 1: Parameter (Recommended)
+
+```python
+from tvDatafeed import TvDatafeed
+
+# Quiet mode - only warnings and errors (production)
+tv = TvDatafeed(verbose=False)
+
+# Verbose mode - all info, warnings and errors (development/debugging)
+tv = TvDatafeed(verbose=True)  # Default
+```
+
+#### Method 2: Environment Variable
+
+```bash
+# Set in .env file or shell
+export TV_VERBOSE=false
+```
+
+```python
+from tvDatafeed import TvDatafeed
+
+# Will automatically use TV_VERBOSE from environment
+tv = TvDatafeed()
+```
+
+#### Priority
+
+When both parameter and environment variable are set, the **parameter takes priority**:
+
+```bash
+export TV_VERBOSE=true
+```
+
+```python
+# This will use quiet mode despite TV_VERBOSE=true
+tv = TvDatafeed(verbose=False)
+```
+
+#### What Gets Logged
+
+**Verbose Mode (verbose=True)** - Default behavior:
+- ✅ Info messages (authentication, connection, data retrieval progress)
+- ✅ Warnings (non-critical issues, fallbacks)
+- ✅ Errors (critical failures)
+- ✅ Debug messages (if logging.DEBUG is set)
+
+**Quiet Mode (verbose=False)** - Production use:
+- ❌ Info messages suppressed
+- ✅ Warnings shown
+- ✅ Errors always shown
+- ❌ Debug messages suppressed
+
+#### Example: Clean Production Logs
+
+```python
+import logging
+from tvDatafeed import TvDatafeed, Interval
+
+# Configure root logger for production
+logging.basicConfig(
+    level=logging.WARNING,
+    format='%(asctime)s - %(levelname)s - %(message)s'
+)
+
+# Create quiet TvDatafeed instance
+tv = TvDatafeed(
+    username='your_username',
+    password='your_password',
+    verbose=False  # Quiet mode
+)
+
+# Get data without noisy info logs
+df = tv.get_hist('BTCUSDT', 'BINANCE', Interval.in_1_hour, n_bars=100)
+
+# Only errors/warnings will be logged
+```
+
+#### Use Cases
+
+**Use verbose=True (default) when:**
+- Developing and debugging
+- Learning the library
+- Troubleshooting connection issues
+- You want detailed progress information
+
+**Use verbose=False when:**
+- Running in production
+- Scheduled/automated tasks
+- Clean log output is important
+- You only care about errors/warnings
+
+**Note:** See [examples/quiet_mode.py](examples/quiet_mode.py) for a complete working example.
+
 ## 📝 Examples
 
 Check out the [examples/](examples/) directory:
@@ -243,6 +344,7 @@ Check out the [examples/](examples/) directory:
 - **[live_feed.py](examples/live_feed.py)** - Real-time data monitoring
 - **[error_handling.py](examples/error_handling.py)** - Robust error handling
 - **[captcha_workaround.py](examples/captcha_workaround.py)** - Handle CAPTCHA requirement
+- **[quiet_mode.py](examples/quiet_mode.py)** - Verbose logging control (production vs development)
 
 Run examples:
 

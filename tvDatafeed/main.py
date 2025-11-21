@@ -65,6 +65,7 @@ class TvDatafeed:
         password: Optional[str] = None,
         auth_token: Optional[str] = None,
         ws_timeout: Optional[float] = None,
+        verbose: Optional[bool] = None,
     ) -> None:
         """Create TvDatafeed object
 
@@ -83,6 +84,11 @@ class TvDatafeed:
             2. NetworkConfig.recv_timeout if available
             3. Default value of 5 seconds
             Set to -1 for no timeout (not recommended).
+        verbose : bool, optional
+            Enable verbose logging. If False, only warnings and errors are shown.
+            Can also be set via TV_VERBOSE environment variable.
+            Priority: parameter > environment variable > default (True).
+            If not specified, defaults to True (or value from TV_VERBOSE if set).
 
         Raises
         ------
@@ -104,8 +110,38 @@ class TvDatafeed:
         >>> # Use environment variable
         >>> # export TV_WS_TIMEOUT=60.0
         >>> tv = TvDatafeed()  # Will use 60s from env
+        >>>
+        >>> # Quiet mode (production)
+        >>> tv = TvDatafeed(verbose=False)
+        >>>
+        >>> # Verbose mode via environment variable
+        >>> # export TV_VERBOSE=false
+        >>> tv = TvDatafeed()  # Will use quiet mode from env
         """
         self.ws_debug = False
+
+        # Configure verbose logging
+        # Priority: parameter > environment variable > default (True)
+        if verbose is not None:
+            # Parameter explicitly provided, use it
+            self.verbose = verbose
+        else:
+            # No parameter, check environment variable
+            env_verbose = os.getenv('TV_VERBOSE')
+            if env_verbose is not None:
+                # Environment variable exists, parse it
+                self.verbose = env_verbose.lower() in ('true', '1', 'yes', 'on')
+            else:
+                # No env var either, use default
+                self.verbose = True
+
+        # Configure logging level based on verbose setting
+        if not self.verbose:
+            # Quiet mode: only show warnings and errors
+            logger.setLevel(logging.WARNING)
+        else:
+            # Verbose mode: show info and above
+            logger.setLevel(logging.INFO)
 
         # Configure WebSocket timeout
         if ws_timeout is not None:

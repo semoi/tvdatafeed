@@ -56,6 +56,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Commit: d96fa70
 
 ### Added
+- **Verbose logging control (PR #37)**
+  - NEW: `verbose` parameter in TvDatafeed.__init__()
+  - Control log verbosity: verbose=False for quiet production logs
+  - Environment variable support: TV_VERBOSE
+  - Priority: parameter > env var > default (True)
+  - Errors and warnings always shown regardless of verbose setting
+  - Comprehensive documentation in README.md "Verbose Logging" section
+  - NEW: examples/quiet_mode.py - Complete example with 5 use cases
+  - 13 new unit tests for verbose mode functionality
+  - Backward compatible: verbose=True by default (existing behavior)
+  - Use cases: Development (verbose=True) vs Production (verbose=False)
+
 - **Custom exception hierarchy (tvDatafeed/exceptions.py)**
   - TvDatafeedError base class with context support
   - AuthenticationError, TwoFactorRequiredError for auth issues

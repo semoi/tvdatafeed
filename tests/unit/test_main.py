@@ -372,6 +372,143 @@ class TestTvDatafeed:
         assert 'tv.get_hist' in formatted
         assert 'Example:' in formatted
 
+    def test_verbose_mode_default(self):
+        """Test that verbose mode is enabled by default"""
+        tv = TvDatafeed()
+
+        assert tv.verbose is True
+
+    def test_verbose_mode_disabled(self):
+        """Test that verbose mode can be disabled"""
+        tv = TvDatafeed(verbose=False)
+
+        assert tv.verbose is False
+
+    def test_verbose_mode_enabled_explicit(self):
+        """Test that verbose mode can be explicitly enabled"""
+        tv = TvDatafeed(verbose=True)
+
+        assert tv.verbose is True
+
+    def test_verbose_mode_from_env_true(self):
+        """Test verbose mode from environment variable (true)"""
+        import os
+
+        # Test various true values
+        true_values = ['true', 'True', 'TRUE', '1', 'yes', 'Yes', 'on', 'On']
+
+        for value in true_values:
+            os.environ['TV_VERBOSE'] = value
+
+            try:
+                tv = TvDatafeed()
+                assert tv.verbose is True, f"Failed for TV_VERBOSE={value}"
+            finally:
+                os.environ.pop('TV_VERBOSE', None)
+
+    def test_verbose_mode_from_env_false(self):
+        """Test verbose mode from environment variable (false)"""
+        import os
+
+        # Test various false values
+        false_values = ['false', 'False', 'FALSE', '0', 'no', 'No', 'off', 'Off']
+
+        for value in false_values:
+            os.environ['TV_VERBOSE'] = value
+
+            try:
+                tv = TvDatafeed()
+                assert tv.verbose is False, f"Failed for TV_VERBOSE={value}"
+            finally:
+                os.environ.pop('TV_VERBOSE', None)
+
+    def test_verbose_mode_parameter_overrides_env_true_to_false(self):
+        """Test that parameter overrides environment variable (env=true, param=false)"""
+        import os
+
+        os.environ['TV_VERBOSE'] = 'true'
+
+        try:
+            tv = TvDatafeed(verbose=False)
+            # Parameter should take priority
+            assert tv.verbose is False
+        finally:
+            os.environ.pop('TV_VERBOSE', None)
+
+    def test_verbose_mode_parameter_overrides_env_false_to_true(self):
+        """Test that parameter overrides environment variable (env=false, param=true)"""
+        import os
+
+        os.environ['TV_VERBOSE'] = 'false'
+
+        try:
+            tv = TvDatafeed(verbose=True)
+            # Parameter should take priority
+            assert tv.verbose is True
+        finally:
+            os.environ.pop('TV_VERBOSE', None)
+
+    def test_verbose_mode_logging_level_verbose(self):
+        """Test that verbose mode sets appropriate logging level"""
+        import logging
+        from tvDatafeed.main import logger
+
+        # Save original level
+        original_level = logger.level
+
+        try:
+            tv = TvDatafeed(verbose=True)
+
+            # Logger should be set to INFO or lower
+            assert logger.level <= logging.INFO
+        finally:
+            # Restore original level
+            logger.setLevel(original_level)
+
+    def test_verbose_mode_logging_level_quiet(self):
+        """Test that quiet mode sets appropriate logging level"""
+        import logging
+        from tvDatafeed.main import logger
+
+        # Save original level
+        original_level = logger.level
+
+        try:
+            tv = TvDatafeed(verbose=False)
+
+            # Logger should be set to WARNING
+            assert logger.level == logging.WARNING
+        finally:
+            # Restore original level
+            logger.setLevel(original_level)
+
+    def test_verbose_mode_env_not_set(self):
+        """Test behavior when TV_VERBOSE is not set"""
+        import os
+
+        # Ensure TV_VERBOSE is not set
+        os.environ.pop('TV_VERBOSE', None)
+
+        tv = TvDatafeed()
+
+        # Should default to True
+        assert tv.verbose is True
+
+    def test_verbose_mode_env_invalid_value(self):
+        """Test behavior when TV_VERBOSE has invalid value"""
+        import os
+
+        os.environ['TV_VERBOSE'] = 'invalid_value'
+
+        try:
+            tv = TvDatafeed()
+
+            # Invalid value should be treated as False
+            # (not in ['true', '1', 'yes', 'on'])
+            assert tv.verbose is False
+        finally:
+            os.environ.pop('TV_VERBOSE', None)
+
 
 @pytest.mark.unit
 class TestInterval:

@@ -52,6 +52,25 @@ class Interval(enum.Enum):
     in_monthly = "1M"
 
 
+# Interval length mapping (interval -> seconds)
+# Used for date range queries to calculate time periods
+interval_len = {
+    "1": 60,         # 1 minute
+    "3": 180,        # 3 minutes
+    "5": 300,        # 5 minutes
+    "15": 900,       # 15 minutes
+    "30": 1800,      # 30 minutes
+    "45": 2700,      # 45 minutes
+    "1H": 3600,      # 1 hour
+    "2H": 7200,      # 2 hours
+    "3H": 10800,     # 3 hours
+    "4H": 14400,     # 4 hours
+    "1D": 86400,     # 1 day
+    "1W": 604800,    # 1 week
+    "1M": 2592000,   # 1 month (30 days approximation)
+}
+
+
 class TvDatafeed:
     __sign_in_url = 'https://www.tradingview.com/accounts/signin/'
     __search_url = 'https://symbol-search.tradingview.com/symbol_search/?text={}&hl=1&exchange={}&lang=en&type=&domain=production'
@@ -354,7 +373,38 @@ class TvDatafeed:
         self.ws.send(m)
 
     @staticmethod
-    def __create_df(raw_data, symbol):
+    def __create_df(
+        raw_data: str,
+        symbol: str,
+        interval_len: Optional[int] = None,
+        time_zone: Optional[str] = None
+    ) -> Optional[pd.DataFrame]:
+        """
+        Create pandas DataFrame from raw WebSocket data
+
+        Parameters
+        ----------
+        raw_data : str
+            Raw WebSocket response data
+        symbol : str
+            Symbol name for the DataFrame
+        interval_len : int, optional
+            Interval length in seconds (for timezone-aware data)
+        time_zone : str, optional
+            Timezone name (e.g., 'America/New_York', 'UTC')
+            If provided, adds timezone metadata to the DataFrame
+
+        Returns
+        -------
+        pd.DataFrame or None
+            DataFrame with OHLCV data, or None if parsing fails
+
+        Notes
+        -----
+        The DataFrame includes columns: symbol, datetime (index), open,
+        high, low, close, volume. If time_zone is provided, timezone
+        information is added to the DataFrame metadata.
+        """
         try:
             out = re.search(r'"s":\[(.+?)\}\]', raw_data).group(1)
             x = out.split(',{"')
@@ -383,14 +433,92 @@ class TvDatafeed:
 
                 data.append(row)
 
-            data = pd.DataFrame(
+            df = pd.DataFrame(
                 data, columns=["datetime", "open",
                                "high", "low", "close", "volume"]
             ).set_index("datetime")
-            data.insert(0, "symbol", value=symbol)
-            return data
+            df.insert(0, "symbol", value=symbol)
+
+            # Add timezone metadata if provided
+            if time_zone:
+                df.attrs['timezone'] = time_zone
+                logger.debug(f"Added timezone metadata: {time_zone}")
+
+            return df
         except AttributeError:
             logger.error("no data, please check the exchange and symbol")
+            return None
+
+    @staticmethod
+    def is_valid_date_range(
+        start: datetime.datetime,
+        end: datetime.datetime
+    ) -> bool:
+        """
+        Validate date range for historical data query
+
+        Parameters
+        ----------
+        start : datetime
+            Start date/time for the query
+        end : datetime
+            End date/time for the query
+
+        Returns
+        -------
+        bool
+            True if the date range is valid, False otherwise
+
+        Notes
+        -----
+        A valid date range must satisfy:
+        - Start date is before end date
+        - Neither date is in the future
+        - Both dates are after 2000-01-01
+        - Dates can be timezone-aware or naive
+
+        Examples
+        --------
+        >>> from datetime import datetime
+        >>> TvDatafeed.is_valid_date_range(
+        ...     datetime(2024, 1, 1),
+        ...     datetime(2024, 1, 31)
+        ... )
+        True
+        >>> TvDatafeed.is_valid_date_range(
+        ...     datetime(2024, 1, 31),
+        ...     datetime(2024, 1, 1)
+        ... )
+        False
+        """
+        # Get current time
+        now = datetime.datetime.now()
+
+        # Check if start is before end
+        if start >= end:
+            logger.warning(f"Invalid date range: start ({start}) must be before end ({end})")
+            return False
+
+        # Check if dates are not in the future
+        if start > now:
+            logger.warning(f"Invalid date range: start date ({start}) is in the future")
+            return False
+
+        if end > now:
+            logger.warning(f"Invalid date range: end date ({end}) is in the future")
+            return False
+
+        # Check if dates are after 2000-01-01 (TradingView data limitation)
+        min_date = datetime.datetime(2000, 1, 1)
+        if start < min_date:
+            logger.warning(f"Invalid date range: start date ({start}) is before 2000-01-01")
+            return False
+
+        if end < min_date:
+            logger.warning(f"Invalid date range: end date ({end}) is before 2000-01-01")
+            return False
+
+        return True
 
     @staticmethod
     def __format_symbol(symbol, exchange, contract: int = None):
@@ -443,14 +571,64 @@ class TvDatafeed:
         logger.debug(f"Formatted symbol: {symbol}")
         return symbol
 
+    def __get_response(self) -> str:
+        """
+        Read WebSocket responses until series_completed message is received
+
+        Returns
+        -------
+        str
+            Concatenated raw data from WebSocket responses
+
+        Raises
+        ------
+        WebSocketTimeoutError
+            If timeout occurs while receiving data
+        WebSocketError
+            If any other error occurs during data reception
+
+        Notes
+        -----
+        This method reads messages from the WebSocket connection until it
+        receives a message containing "series_completed", which indicates
+        that all historical data has been transmitted.
+        """
+        raw_data = ""
+
+        logger.debug("Reading WebSocket responses until series_completed")
+
+        while True:
+            try:
+                result = self.ws.recv()
+                raw_data = raw_data + result + "\n"
+            except TimeoutError as e:
+                logger.error("Timeout while receiving WebSocket data")
+                raise WebSocketTimeoutError(
+                    f"Timeout while fetching data. "
+                    f"Try again or increase timeout."
+                ) from e
+            except Exception as e:
+                logger.error(f"Error receiving WebSocket data: {e}")
+                raise WebSocketError(
+                    f"Error receiving data: {type(e).__name__}: {e}"
+                ) from e
+
+            if "series_completed" in result:
+                logger.debug("Received series_completed message")
+                break
+
+        return raw_data
+
     def get_hist(
         self,
         symbol: str,
         exchange: str = "NSE",
         interval: Interval = Interval.in_daily,
-        n_bars: int = 10,
+        n_bars: Optional[int] = None,
         fut_contract: Optional[int] = None,
         extended_session: bool = False,
+        start_date: Optional[datetime.datetime] = None,
+        end_date: Optional[datetime.datetime] = None,
     ) -> Optional[pd.DataFrame]:
         """Get historical OHLCV data from TradingView
 
@@ -464,23 +642,33 @@ class TvDatafeed:
         interval : Interval, optional
             Chart interval. Defaults to Interval.in_daily.
         n_bars : int, optional
-            Number of bars to download (max 5000). Defaults to 10.
+            Number of bars to download (max 5000). Mutually exclusive with
+            start_date/end_date. If not provided, must use start_date/end_date.
         fut_contract : int, optional
             Futures contract: None for cash, 1 for continuous current contract,
             2 for continuous next contract. Defaults to None.
         extended_session : bool, optional
             Regular session if False, extended session if True. Defaults to False.
+        start_date : datetime, optional
+            Start date for historical data query. Mutually exclusive with n_bars.
+            Must be used together with end_date. Can be timezone-aware or naive.
+        end_date : datetime, optional
+            End date for historical data query. Mutually exclusive with n_bars.
+            Must be used together with start_date. Can be timezone-aware or naive.
 
         Returns
         -------
         pd.DataFrame or None
             DataFrame with columns: symbol, datetime (index), open, high, low, close, volume
+            If start_date/end_date used, DataFrame includes timezone metadata in df.attrs.
             Returns None if no data is available.
 
         Raises
         ------
         DataValidationError
-            If symbol, exchange, or n_bars are invalid
+            If symbol, exchange, n_bars, or date range are invalid
+            If both n_bars and date range are provided
+            If only one of start_date/end_date is provided
         InvalidIntervalError
             If interval is not supported
         WebSocketError
@@ -490,14 +678,31 @@ class TvDatafeed:
 
         Examples
         --------
+        >>> # Using n_bars (traditional method)
         >>> tv = TvDatafeed()
         >>> df = tv.get_hist('BTCUSDT', 'BINANCE', Interval.in_1_hour, n_bars=100)
         >>> print(df.head())
+        >>>
+        >>> # Using date range (new method)
+        >>> from datetime import datetime
+        >>> df = tv.get_hist(
+        ...     'BTCUSDT', 'BINANCE', Interval.in_1_hour,
+        ...     start_date=datetime(2024, 1, 1),
+        ...     end_date=datetime(2024, 1, 31)
+        ... )
+        >>> print(df.head())
+        >>> print(f"Timezone: {df.attrs.get('timezone', 'Not set')}")
+
+        Notes
+        -----
+        - n_bars and date range (start_date/end_date) are mutually exclusive
+        - Date range validation: start < end, no future dates, after 2000-01-01
+        - TradingView API applies a -30min adjustment to timestamps internally
+        - Timezone information is preserved in df.attrs when using date ranges
         """
         # Validate inputs
         symbol = Validators.validate_symbol(symbol, allow_formatted=True)
         exchange = Validators.validate_exchange(exchange)
-        n_bars = Validators.validate_n_bars(n_bars)
 
         # Validate interval
         if not isinstance(interval, Interval):
@@ -505,6 +710,62 @@ class TvDatafeed:
                 f"Invalid interval type: {type(interval).__name__}. "
                 f"Must be an Interval enum value."
             )
+
+        # Validate n_bars and date range mutual exclusivity
+        using_date_range = start_date is not None or end_date is not None
+        using_n_bars = n_bars is not None
+
+        if using_date_range and using_n_bars:
+            raise DataValidationError(
+                "n_bars/date_range",
+                f"n_bars={n_bars}, start_date={start_date}, end_date={end_date}",
+                "n_bars and date range (start_date/end_date) are mutually exclusive. "
+                "Use either n_bars OR start_date/end_date, not both."
+            )
+
+        if not using_date_range and not using_n_bars:
+            # Default to n_bars=10 for backward compatibility
+            n_bars = 10
+            using_n_bars = True
+            logger.debug("No n_bars or date range provided, defaulting to n_bars=10")
+
+        # If using date range, validate both dates are provided
+        if using_date_range:
+            if start_date is None or end_date is None:
+                raise DataValidationError(
+                    "date_range",
+                    f"start_date={start_date}, end_date={end_date}",
+                    "Both start_date and end_date must be provided together"
+                )
+
+            # Validate date range
+            if not self.is_valid_date_range(start_date, end_date):
+                raise DataValidationError(
+                    "date_range",
+                    f"start={start_date}, end={end_date}",
+                    "Invalid date range. Check that: start < end, no future dates, "
+                    "dates after 2000-01-01"
+                )
+
+            # Convert datetime to Unix timestamp (milliseconds)
+            # TradingView API uses milliseconds since epoch
+            start_timestamp = int(start_date.timestamp() * 1000)
+            end_timestamp = int(end_date.timestamp() * 1000)
+
+            # Apply TradingView API adjustment (-30 minutes = -1800000 ms)
+            # This is required by TradingView's API for date range queries
+            TRADINGVIEW_TIMESTAMP_ADJUSTMENT_MS = 1800000
+            start_timestamp -= TRADINGVIEW_TIMESTAMP_ADJUSTMENT_MS
+            end_timestamp -= TRADINGVIEW_TIMESTAMP_ADJUSTMENT_MS
+
+            logger.debug(
+                f"Date range: {start_date} to {end_date} "
+                f"(timestamps: {start_timestamp} to {end_timestamp})"
+            )
+
+        # If using n_bars, validate it
+        if using_n_bars:
+            n_bars = Validators.validate_n_bars(n_bars)
 
         symbol = self.__format_symbol(
             symbol=symbol, exchange=exchange, contract=fut_contract
@@ -565,37 +826,32 @@ class TvDatafeed:
                 + "}",
             ],
         )
-        self.__send_message(
-            "create_series",
-            [self.chart_session, "s1", "s1", "symbol_1", interval, n_bars],
-        )
-        self.__send_message("switch_timezone", [
-                            self.chart_session, "exchange"])
+        # Create series with either n_bars or date range
+        if using_date_range:
+            # Format: "r,{start_timestamp}:{end_timestamp}"
+            range_string = f"r,{start_timestamp}:{end_timestamp}"
+            self.__send_message(
+                "create_series",
+                [self.chart_session, "s1", "s1", "symbol_1", interval, range_string],
+            )
+            logger.debug(
+                f"Fetching data for {symbol} from {start_date} to {end_date} "
+                f"at interval {interval}"
+            )
+        else:
+            # Traditional n_bars format
+            self.__send_message(
+                "create_series",
+                [self.chart_session, "s1", "s1", "symbol_1", interval, n_bars],
+            )
+            logger.debug(f"Fetching {n_bars} bars of data for {symbol} at interval {interval}")
 
-        raw_data = ""
+        # Switch timezone to exchange timezone
+        self.__send_message("switch_timezone", [self.chart_session, "exchange"])
 
-        logger.debug(f"Fetching {n_bars} bars of data for {symbol} at interval {interval}")
-
+        # Get WebSocket response
         try:
-            while True:
-                try:
-                    result = self.ws.recv()
-                    raw_data = raw_data + result + "\n"
-                except TimeoutError as e:
-                    logger.error(f"Timeout while receiving data for {symbol}")
-                    raise WebSocketTimeoutError(
-                        f"Timeout while fetching data for {symbol}. "
-                        f"Try again or increase timeout."
-                    ) from e
-                except Exception as e:
-                    logger.error(f"Error receiving WebSocket data: {e}")
-                    raise WebSocketError(
-                        f"Error receiving data: {type(e).__name__}: {e}"
-                    ) from e
-
-                if "series_completed" in result:
-                    break
-
+            raw_data = self.__get_response()
         finally:
             # Always close the WebSocket connection
             if self.ws:
@@ -604,7 +860,14 @@ class TvDatafeed:
                 except Exception as e:
                     logger.warning(f"Error closing WebSocket: {e}")
 
-        df = self.__create_df(raw_data, symbol)
+        # Get interval length for timezone metadata
+        interval_seconds = interval_len.get(interval)
+
+        # Create DataFrame with timezone metadata if using date range
+        if using_date_range:
+            df = self.__create_df(raw_data, symbol, interval_seconds, "exchange")
+        else:
+            df = self.__create_df(raw_data, symbol)
 
         if df is None:
             logger.warning(f"No data returned for {symbol} on {exchange}")

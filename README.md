@@ -142,16 +142,57 @@ nifty_futures = tv.get_hist('NIFTY', 'NSE', Interval.in_1_hour, n_bars=1000, fut
 extended_data = tv.get_hist('AAPL', 'NASDAQ', Interval.in_1_hour, n_bars=100, extended_session=True)
 ```
 
+#### Date Range Search
+
+**NEW in v1.4:** Instead of specifying `n_bars`, you can now fetch data by date range:
+
+```python
+from datetime import datetime
+from tvDatafeed import TvDatafeed, Interval
+
+tv = TvDatafeed()
+
+# Get data for January 2024
+df = tv.get_hist(
+    'BTCUSDT',
+    'BINANCE',
+    Interval.in_1_hour,
+    start_date=datetime(2024, 1, 1),
+    end_date=datetime(2024, 1, 31)
+)
+
+# Get data for a specific week
+df = tv.get_hist(
+    'AAPL',
+    'NASDAQ',
+    Interval.in_daily,
+    start_date=datetime(2024, 11, 1),
+    end_date=datetime(2024, 11, 7)
+)
+
+# Access timezone metadata
+print(f"Timezone: {df.attrs.get('timezone', 'Not set')}")
+```
+
+**Notes:**
+- `start_date` and `end_date` are **mutually exclusive** with `n_bars`
+- Both dates must be provided together
+- Dates must be after 2000-01-01 and not in the future
+- Timezone metadata is included in `df.attrs['timezone']`
+- Supports both timezone-aware and naive datetime objects
+
 #### Parameters
 
 ```python
 tv.get_hist(
-    symbol: str,           # Symbol name
-    exchange: str,         # Exchange name
-    interval: Interval,    # Time interval
-    n_bars: int = 10,      # Number of bars (max 5000)
-    fut_contract: int = None,  # Futures contract (1=front, 2=next)
-    extended_session: bool = False  # Include extended hours
+    symbol: str,                      # Symbol name
+    exchange: str,                    # Exchange name
+    interval: Interval,               # Time interval
+    n_bars: int = None,               # Number of bars (max 5000) - mutually exclusive with date range
+    fut_contract: int = None,         # Futures contract (1=front, 2=next)
+    extended_session: bool = False,   # Include extended hours
+    start_date: datetime = None,      # Start date (use with end_date) - NEW in v1.4
+    end_date: datetime = None         # End date (use with start_date) - NEW in v1.4
 ) -> pd.DataFrame
 ```
 

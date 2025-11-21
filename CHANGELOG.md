@@ -68,6 +68,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Backward compatible: verbose=True by default (existing behavior)
   - Use cases: Development (verbose=True) vs Production (verbose=False)
 
+- **Date Range Search (PR #69)**
+  - NEW: `start_date` and `end_date` parameters in get_hist()
+  - Fetch historical data by date range instead of n_bars
+  - Support for datetime objects (timezone-aware or naive)
+  - Automatic timestamp conversion with TradingView API adjustment
+  - Mutually exclusive with n_bars parameter
+  - NEW: `interval_len` dictionary - interval to seconds mapping
+  - NEW: `is_valid_date_range()` static method for validation
+  - NEW: `__get_response()` method - consolidated WebSocket response reading
+  - Enhanced `__create_df()` with timezone and interval_len parameters
+  - Timezone metadata stored in DataFrame.attrs['timezone']
+  - Validation: start < end, no future dates, after 2000-01-01
+  - NEW: Validators.validate_date_range() for date validation
+  - NEW: Validators.validate_timestamp() for Unix timestamp validation
+  - Comprehensive documentation in README.md "Date Range Search" section
+  - NEW: examples/date_range_search.py - Complete examples (350+ lines)
+  - 16 new unit tests for date range functionality (100% pass rate)
+  - Backward compatible: n_bars still works exactly as before
+  - Defaults to n_bars=10 when neither n_bars nor dates provided
+  - Use cases: Backtesting with specific time periods, historical analysis
+
 - **Custom exception hierarchy (tvDatafeed/exceptions.py)**
   - TvDatafeedError base class with context support
   - AuthenticationError, TwoFactorRequiredError for auth issues

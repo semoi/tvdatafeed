@@ -5,6 +5,7 @@ This module provides validation functions for all user inputs to ensure
 data integrity and provide clear error messages.
 """
 from typing import Optional, Union
+import datetime
 import re
 from .exceptions import (
     DataValidationError,
@@ -339,6 +340,175 @@ class Validators:
             raise ConfigurationError("password", "***", "Password must be a non-empty string")
 
         return True
+
+    @staticmethod
+    def validate_date_range(
+        start_date: Optional[datetime.datetime],
+        end_date: Optional[datetime.datetime]
+    ) -> tuple:
+        """
+        Validate date range for historical data query
+
+        Parameters
+        ----------
+        start_date : datetime or None
+            Start date for the query
+        end_date : datetime or None
+            End date for the query
+
+        Returns
+        -------
+        tuple
+            (start_date, end_date) if valid
+
+        Raises
+        ------
+        DataValidationError
+            If date range is invalid
+
+        Notes
+        -----
+        Validation checks:
+        - Both dates must be provided together (or both None)
+        - Start date must be before end date
+        - Neither date can be in the future
+        - Both dates must be after 2000-01-01
+        - Dates can be timezone-aware or naive
+        """
+        # Both must be provided or both must be None
+        if (start_date is None) != (end_date is None):
+            raise DataValidationError(
+                "date_range",
+                f"start={start_date}, end={end_date}",
+                "Both start_date and end_date must be provided together"
+            )
+
+        # If both None, return them as-is
+        if start_date is None and end_date is None:
+            return None, None
+
+        # Validate types
+        if not isinstance(start_date, datetime.datetime):
+            raise DataValidationError(
+                "start_date",
+                start_date,
+                f"start_date must be a datetime object, got {type(start_date).__name__}"
+            )
+
+        if not isinstance(end_date, datetime.datetime):
+            raise DataValidationError(
+                "end_date",
+                end_date,
+                f"end_date must be a datetime object, got {type(end_date).__name__}"
+            )
+
+        # Get current time
+        now = datetime.datetime.now()
+
+        # Check start < end
+        if start_date >= end_date:
+            raise DataValidationError(
+                "date_range",
+                f"start={start_date}, end={end_date}",
+                f"start_date ({start_date}) must be before end_date ({end_date})"
+            )
+
+        # Check dates are not in the future
+        if start_date > now:
+            raise DataValidationError(
+                "start_date",
+                start_date,
+                f"start_date ({start_date}) cannot be in the future"
+            )
+
+        if end_date > now:
+            raise DataValidationError(
+                "end_date",
+                end_date,
+                f"end_date ({end_date}) cannot be in the future"
+            )
+
+        # Check dates are after 2000-01-01 (TradingView limitation)
+        min_date = datetime.datetime(2000, 1, 1)
+        if start_date < min_date:
+            raise DataValidationError(
+                "start_date",
+                start_date,
+                f"start_date ({start_date}) must be after 2000-01-01 (TradingView limitation)"
+            )
+
+        if end_date < min_date:
+            raise DataValidationError(
+                "end_date",
+                end_date,
+                f"end_date ({end_date}) must be after 2000-01-01 (TradingView limitation)"
+            )
+
+        return start_date, end_date
+
+    @staticmethod
+    def validate_timestamp(timestamp: Union[int, float], param_name: str = "timestamp") -> int:
+        """
+        Validate Unix timestamp (seconds or milliseconds)
+
+        Parameters
+        ----------
+        timestamp : int or float
+            Unix timestamp to validate
+        param_name : str
+            Parameter name for error messages
+
+        Returns
+        -------
+        int
+            Validated timestamp in milliseconds
+
+        Raises
+        ------
+        DataValidationError
+            If timestamp is invalid
+
+        Notes
+        -----
+        - Accepts both seconds and milliseconds
+        - Automatically converts seconds to milliseconds if needed
+        - Validates timestamp is not in the future
+        - Validates timestamp is after 2000-01-01
+        """
+        try:
+            timestamp = int(timestamp)
+        except (TypeError, ValueError):
+            raise DataValidationError(
+                param_name,
+                timestamp,
+                f"{param_name} must be a valid integer or float"
+            )
+
+        # Convert seconds to milliseconds if needed
+        # Timestamps in seconds are typically < 10^10, milliseconds > 10^12
+        if timestamp < 10**10:
+            # Likely in seconds, convert to milliseconds
+            timestamp = timestamp * 1000
+
+        # Validate timestamp is after 2000-01-01
+        min_timestamp = int(datetime.datetime(2000, 1, 1).timestamp() * 1000)
+        if timestamp < min_timestamp:
+            raise DataValidationError(
+                param_name,
+                timestamp,
+                f"{param_name} must be after 2000-01-01 (TradingView limitation)"
+            )
+
+        # Validate timestamp is not in the future
+        now_timestamp = int(datetime.datetime.now().timestamp() * 1000)
+        if timestamp > now_timestamp:
+            raise DataValidationError(
+                param_name,
+                timestamp,
+                f"{param_name} cannot be in the future"
+            )
+
+        return timestamp
 
 
 # Convenience functions for quick validation

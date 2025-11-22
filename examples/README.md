@@ -90,6 +90,112 @@ python error_handling.py
 
 ---
 
+### 4. Two-Factor Authentication (`2fa_authentication.py`) 🆕
+
+Demonstrates 2FA/TOTP authentication (NEW in PR #30):
+- TOTP secret key for automatic code generation (recommended)
+- Manual 6-digit code input
+- Environment variable configuration
+- Production-ready security patterns
+
+**Run:**
+```bash
+python 2fa_authentication.py
+```
+
+**Requirements:**
+- TradingView account with 2FA enabled
+- TOTP secret key (from TradingView 2FA setup)
+- Optional: `pyotp` package for automatic code generation
+
+**What you'll learn:**
+- How to authenticate with 2FA/TOTP
+- How to get your TOTP secret key from TradingView
+- Secure credential management with environment variables
+- Error handling for 2FA scenarios
+
+---
+
+### 5. Date Range Search (`date_range_search.py`) 🆕
+
+Demonstrates fetching data by date range instead of n_bars (NEW in PR #69):
+- Query by start_date and end_date
+- Timezone-aware data handling
+- Validation of date ranges
+- Use cases for backtesting
+
+**Run:**
+```bash
+python date_range_search.py
+```
+
+**What you'll learn:**
+- How to use start_date and end_date parameters
+- Difference between n_bars and date range queries
+- How to access timezone metadata in DataFrame
+- Date validation rules and constraints
+
+---
+
+### 6. Quiet Mode (`quiet_mode.py`) 🆕
+
+Demonstrates verbose logging control (NEW in PR #37):
+- Quiet mode for production (verbose=False)
+- Verbose mode for development (verbose=True)
+- Environment variable configuration (TV_VERBOSE)
+- Logging level control
+
+**Run:**
+```bash
+python quiet_mode.py
+```
+
+**What you'll learn:**
+- How to control log verbosity
+- Difference between verbose and quiet modes
+- Production vs development logging patterns
+
+---
+
+### 7. CAPTCHA Workaround (`captcha_workaround.py`)
+
+Demonstrates handling CAPTCHA authentication requirements:
+- Extracting auth token from browser
+- Using pre-obtained tokens
+- Secure token storage
+
+**Run:**
+```bash
+python captcha_workaround.py
+```
+
+**What you'll learn:**
+- How to handle CaptchaRequiredError
+- How to extract auth token from browser cookies
+- Secure token management
+
+---
+
+### 8. Symbol Format Guide (`symbol_format_guide.py`)
+
+Comprehensive guide for symbol formatting:
+- EXCHANGE:SYMBOL format
+- Symbol search usage
+- Common exchange symbols
+- Troubleshooting symbol issues
+
+**Run:**
+```bash
+python symbol_format_guide.py
+```
+
+**What you'll learn:**
+- Correct symbol format for TradingView
+- How to find symbols for different markets
+- Best practices for symbol usage
+
+---
+
 ## Tips
 
 ### Authentication
@@ -171,11 +277,18 @@ Interval.in_monthly
 
 **"Authentication failed"**
 - Verify username and password
-- Check if 2FA is enabled (not yet supported in these examples)
+- If 2FA is enabled, see `2fa_authentication.py` for setup instructions
 - Ensure credentials are set in environment variables
+- For CAPTCHA issues, see `captcha_workaround.py`
+
+**"TwoFactorRequiredError"**
+- Your account has 2FA enabled
+- Provide `totp_secret` (recommended) or `totp_code` parameter
+- See `2fa_authentication.py` for detailed examples
 
 **"Timeout errors"**
 - Check your internet connection
+- Increase timeout: `TvDatafeed(ws_timeout=30.0)`
 - TradingView might be experiencing issues
 - Try again later
 

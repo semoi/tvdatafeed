@@ -1,22 +1,23 @@
+import threading
 import tvDatafeed
 
 class Seis(object):
     """
     Symbol, exchange and interval data set
-    
-    Holds a unique set of symbol, exchange and interval 
-    values in addition to keeping a set of consumers 
+
+    Holds a unique set of symbol, exchange and interval
+    values in addition to keeping a set of consumers
     instances for this set.
-    
+
     Parameters
     ----------
-    symbol : str 
+    symbol : str
         ticker string for symbol
     exchange : str
         exchange where symbol is listed
     interval : tvDatafeed.Interval
         chart interval
-    
+
     Methods
     -------
     new_consumer(callback)
@@ -36,10 +37,12 @@ class Seis(object):
         self._symbol=symbol
         self._exchange=exchange
         self._interval=interval
-        
-        self._tvdatafeed=None 
+
+        self._tvdatafeed=None
         self._consumers=[]
+        self._consumers_lock=threading.Lock()  # Lock for thread-safe access to _consumers
         self._updated=None # datetime of the data bar that was last retrieved from TradingView
+        self._updated_lock=threading.Lock()  # Lock for thread-safe access to _updated
     
     def __eq__(self, other):
         # Compare two seis instances to decide if they are equal
@@ -147,49 +150,52 @@ class Seis(object):
         # Add consumer into Seis, not for direct use
         #
         # This methods is not for direct calling by the
-        # user, but for TvDatafeedLive instance to 
+        # user, but for TvDatafeedLive instance to
         # perform operations in the background.
         #
         # Parameters
         # ----------
         # consumer : tvdatafeed.Consumer
         #     consumer instance
-        self._consumers.append(consumer)
-        
+        with self._consumers_lock:
+            self._consumers.append(consumer)
+
     def pop_consumer(self, consumer):
         # Remove consumer from Seis, not for direct use
         #
         # This methods is not for direct calling by the
-        # user, but for TvDatafeedLive instance to 
+        # user, but for TvDatafeedLive instance to
         # perform operations in the background.
         #
         # Parameters
         # ----------
         # consumer : tvdatafeed.Consumer
         #    consumer instance
-        if consumer not in self._consumers:
-            raise NameError("Consumer does not exist in the list")
-        self._consumers.remove(consumer)
+        with self._consumers_lock:
+            if consumer not in self._consumers:
+                raise NameError("Consumer does not exist in the list")
+            self._consumers.remove(consumer)
     
     def is_new_data(self, data):
         ''''
         Check if datas datetime is newer than previous datas datetime
-        
+
         Parameters
         ----------
         data : pandas.DataFrame
             contains retrieved data and datetime
-        
+
         Returns
         -------
         boolean
             True is new, False otherwise
         '''
-        if self._updated != data.index.to_pydatetime()[0]: 
-            self._updated=data.index.to_pydatetime()[0] # update the datetime of the last sample
-            return True
-        
-        return False
+        new_datetime = data.index.to_pydatetime()[0]
+        with self._updated_lock:
+            if self._updated != new_datetime:
+                self._updated = new_datetime # update the datetime of the last sample
+                return True
+            return False
    
     def get_hist(self, n_bars=10, timeout=-1):
         '''
@@ -245,12 +251,13 @@ class Seis(object):
     def get_consumers(self):
         '''
         Return a list of consumers for this Seis
-        
+
         Returns
         -------
         list
-            contains all consumer instances registered 
-            for this Seis
+            contains a copy of all consumer instances registered
+            for this Seis (thread-safe snapshot)
         '''
-        return self._consumers
+        with self._consumers_lock:
+            return list(self._consumers)  # Return a copy for thread safety
     

@@ -37,11 +37,16 @@ tvdatafeed/
   - Connexion WebSocket à `wss://data.tradingview.com/socket.io/websocket`
   - Récupération jusqu'à 5000 bars de données historiques
   - Recherche de symboles
-- **Limitations actuelles** :
-  - ❌ Pas de support 2FA
-  - ❌ Timeout WebSocket fixe (5 secondes)
-  - ❌ Pas de retry automatique sur échec d'authentification
-  - ❌ Gestion d'erreurs basique
+- **Fonctionnalités récentes (PR #30 - Nov 2025)** :
+  - ✅ Support 2FA/TOTP (totp_secret, totp_code) - commit a5288f3
+  - ✅ Date Range Search (start_date, end_date) - commit ab62585
+  - ✅ Verbose logging control (verbose parameter) - commit 0045714
+  - ✅ Timeout WebSocket configurable (ws_timeout, TV_WS_TIMEOUT)
+  - ✅ Gestion d'erreurs robuste (exceptions personnalisées)
+- **Limitations restantes** :
+  - ❌ Pas de retry automatique sur connexion WebSocket
+  - ❌ Pas de timeout cumulatif dans __get_response()
+  - ❌ Rate limiting TradingView non géré
 
 #### 2. TvDatafeedLive (datafeed.py)
 - **Rôle** : Extension avec support temps réel via threading
@@ -78,16 +83,17 @@ Autres : `1D (daily), 1W (weekly), 1M (monthly)`
 ### Points d'attention critiques
 
 #### Sécurité & Authentification
-- 🔴 **URGENT** : Implémenter le support 2FA
-- 🔴 Sécuriser le stockage des credentials
+- ✅ **COMPLÉTÉ** : Support 2FA/TOTP implémenté (PR #30 - Nov 2025)
+- ✅ **COMPLÉTÉ** : Credentials masqués dans les logs (mask_sensitive_data)
 - 🟡 Gérer l'expiration et le renouvellement des tokens
-- 🟡 Logs sans exposer les credentials
+- 🟡 Nettoyer les credentials de la mémoire après auth
 
 #### WebSocket & Network
-- 🔴 Améliorer la gestion des déconnexions
-- 🟡 Rendre le timeout configurable
+- ✅ **COMPLÉTÉ** : Timeout configurable (ws_timeout, TV_WS_TIMEOUT)
+- 🔴 **CRITIQUE** : Implémenter retry avec backoff sur connexion WebSocket
+- 🔴 **CRITIQUE** : Ajouter timeout cumulatif dans __get_response()
 - 🟡 Implémenter auto-reconnect avec backoff exponentiel
-- 🟡 Gérer les rate limits de TradingView
+- 🟡 Gérer les rate limits de TradingView (HTTP 429)
 
 #### Threading & Concurrence
 - 🔴 Vérifier les race conditions potentielles
@@ -101,10 +107,11 @@ Autres : `1D (daily), 1W (weekly), 1M (monthly)`
 - 🟡 Parsing plus résilient (regex fragiles actuellement)
 
 #### Tests & Qualité
-- 🔴 **URGENT** : Ajouter des tests unitaires
-- 🔴 Tests d'intégration pour les flows critiques
+- ✅ **COMPLÉTÉ** : Tests unitaires ajoutés (100+ tests, 15+ pour 2FA)
+- ✅ **COMPLÉTÉ** : Tests d'intégration pour les flows critiques
+- 🟡 Ajouter tests d'intégration 2FA (avec mocks HTTP)
 - 🟡 Tests de charge pour le threading
-- 🟡 Mocking de TradingView pour tests isolés
+- 🟡 Tests de sécurité des logs (credentials masqués)
 
 ---
 
@@ -255,17 +262,20 @@ Les agents doivent collaborer sur les tâches complexes :
 
 ## Roadmap prioritaire
 
-### Phase 1 : Fondations solides (URGENT)
-- [ ] Implémenter le support 2FA
-- [ ] Améliorer la gestion d'erreurs dans `__auth`
-- [ ] Rendre les timeouts configurables
-- [ ] Ajouter retry avec backoff sur auth
+### Phase 1 : Fondations solides ✅ COMPLÉTÉ (Nov 2025)
+- [x] ✅ Implémenter le support 2FA (PR #30 - commit a5288f3)
+- [x] ✅ Améliorer la gestion d'erreurs dans `__auth` (exceptions personnalisées)
+- [x] ✅ Rendre les timeouts configurables (ws_timeout, TV_WS_TIMEOUT)
+- [x] ✅ Date Range Search (start_date, end_date) - PR #69
+- [x] ✅ Verbose logging control (verbose parameter) - PR #37
+- [ ] 🔴 Ajouter retry avec backoff sur connexion WebSocket (utils.py prêt mais non utilisé)
 
-### Phase 2 : Robustesse network
+### Phase 2 : Robustesse network (EN COURS)
+- [ ] 🔴 **CRITIQUE** : Retry WebSocket avec `retry_with_backoff()` (déjà implémenté dans utils.py)
+- [ ] 🔴 **CRITIQUE** : Timeout cumulatif dans `__get_response()`
 - [ ] Auto-reconnect WebSocket
-- [ ] Backoff exponentiel sur échecs
-- [ ] Gestion rate limiting TradingView
-- [ ] Meilleure gestion des timeouts
+- [ ] Gestion rate limiting TradingView (HTTP 429)
+- [x] ✅ Meilleure gestion des timeouts (configurable via param/env)
 
 ### Phase 3 : Threading bullet-proof
 - [ ] Audit complet race conditions
@@ -273,17 +283,18 @@ Les agents doivent collaborer sur les tâches complexes :
 - [ ] Tests de charge threading
 - [ ] Documentation patterns concurrence
 
-### Phase 4 : Tests & Qualité
-- [ ] Suite tests unitaires complète
-- [ ] Tests d'intégration
-- [ ] CI/CD pipeline
+### Phase 4 : Tests & Qualité ✅ PARTIELLEMENT COMPLÉTÉ
+- [x] ✅ Suite tests unitaires (100+ tests)
+- [x] ✅ Tests d'intégration pour flows critiques
+- [x] ✅ CI/CD pipeline (GitHub Actions)
 - [ ] Coverage > 80%
+- [ ] Tests d'intégration 2FA avec mocks HTTP
 
-### Phase 5 : UX & Documentation
-- [ ] Exemples complets pour tous les use cases
-- [ ] Guide de troubleshooting
-- [ ] Messages d'erreur ultra-clairs
-- [ ] Documentation API complète
+### Phase 5 : UX & Documentation ✅ PARTIELLEMENT COMPLÉTÉ
+- [x] ✅ Exemples complets (2FA, date range, quiet mode, CAPTCHA)
+- [x] ✅ Guide de troubleshooting (README.md)
+- [x] ✅ Messages d'erreur clairs (exceptions personnalisées)
+- [ ] Documentation API complète (Sphinx/MkDocs)
 
 ---
 
@@ -319,6 +330,18 @@ Les agents doivent collaborer sur les tâches complexes :
 
 ---
 
-**Version** : 1.0
-**Dernière mise à jour** : 2025-11-20
-**Statut** : 🔴 En développement actif
+**Version** : 1.1
+**Dernière mise à jour** : 2025-11-22
+**Statut** : 🟡 Phase 1 complétée, Phase 2 en cours
+
+---
+
+## Historique des mises à jour
+
+### Version 1.1 (2025-11-22)
+- ✅ PR #30 mergée : Support 2FA/TOTP complet
+- ✅ PR #69 intégrée : Date Range Search
+- ✅ PR #37 intégrée : Verbose logging control
+- ✅ Revue de sécurité par agent Auth & Sécurité : 8.5/10 - APPROUVÉ
+- ✅ 15+ tests unitaires pour 2FA
+- 📋 Identifié : Manque de retry WebSocket et timeout cumulatif (Phase 2)

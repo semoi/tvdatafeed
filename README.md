@@ -432,8 +432,11 @@ Check out the [examples/](examples/) directory:
 - **[basic_usage.py](examples/basic_usage.py)** - Getting started guide
 - **[live_feed.py](examples/live_feed.py)** - Real-time data monitoring
 - **[error_handling.py](examples/error_handling.py)** - Robust error handling
+- **[2fa_authentication.py](examples/2fa_authentication.py)** - 🆕 Two-Factor Authentication (TOTP)
+- **[date_range_search.py](examples/date_range_search.py)** - 🆕 Date Range Search (backtesting)
+- **[quiet_mode.py](examples/quiet_mode.py)** - Verbose logging control
 - **[captcha_workaround.py](examples/captcha_workaround.py)** - Handle CAPTCHA requirement
-- **[quiet_mode.py](examples/quiet_mode.py)** - Verbose logging control (production vs development)
+- **[symbol_format_guide.py](examples/symbol_format_guide.py)** - Symbol formatting guide
 
 Run examples:
 
@@ -642,7 +645,7 @@ print(results[0]['symbol'])  # Use this symbol
 
 **Possible causes:**
 - Incorrect username/password
-- 2FA enabled (not yet supported)
+- 2FA enabled → Use `totp_secret` or `totp_code` parameter (see [2FA Authentication](#option-4-two-factor-authentication-2fa))
 - Credentials not in environment variables
 - CAPTCHA required (see below)
 

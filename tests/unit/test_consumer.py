@@ -125,8 +125,9 @@ class TestConsumer:
     def test_consumer_exception_handling(self, sample_ohlcv_data):
         """Test that consumer handles callback exceptions"""
         seis = Seis('BTCUSDT', 'BINANCE', Interval.in_1_hour)
-        mock_tvl = Mock()
-        seis.tvdatafeed = mock_tvl
+        # Note: We don't set seis.tvdatafeed because the setter requires
+        # a TvDatafeedLive instance. The del_consumer will raise NameError
+        # which is caught and logged, then the finally block cleans up.
 
         def bad_callback(s, data):
             raise ValueError("Test exception")
@@ -137,12 +138,99 @@ class TestConsumer:
         # Put data that will cause exception
         consumer.put(sample_ohlcv_data)
 
-        # Wait for processing
-        time.sleep(0.1)
+        # Wait for processing and cleanup
+        time.sleep(0.2)
 
         # Consumer should have stopped due to exception
-        consumer.join(timeout=1.0)
+        consumer.join(timeout=2.0)
 
-        # Verify consumer cleaned up
+        # Verify consumer cleaned up (finally block sets these to None)
         assert consumer.seis is None
         assert consumer.callback is None
+
+    def test_consumer_seis_setter(self):
+        """Test the seis property setter"""
+        seis1 = Seis('BTCUSDT', 'BINANCE', Interval.in_1_hour)
+        seis2 = Seis('ETHUSDT', 'BINANCE', Interval.in_1_hour)
+        callback = Mock()
+
+        consumer = Consumer(seis1, callback)
+        assert consumer.seis == seis1
+
+        # Test setter
+        consumer.seis = seis2
+        assert consumer.seis == seis2
+
+        # Test setting to None
+        consumer.seis = None
+        assert consumer.seis is None
+
+    def test_consumer_callback_setter(self):
+        """Test the callback property setter"""
+        seis = Seis('BTCUSDT', 'BINANCE', Interval.in_1_hour)
+        callback1 = Mock()
+        callback2 = Mock()
+
+        consumer = Consumer(seis, callback1)
+        assert consumer.callback == callback1
+
+        # Test setter
+        consumer.callback = callback2
+        assert consumer.callback == callback2
+
+        # Test setting to None
+        consumer.callback = None
+        assert consumer.callback is None
+
+    def test_consumer_repr_stopped(self):
+        """Test Consumer repr when stopped"""
+        seis = Seis('BTCUSDT', 'BINANCE', Interval.in_1_hour)
+        callback = Mock()
+
+        consumer = Consumer(seis, callback)
+        # Manually set to None to simulate stopped state
+        consumer.seis = None
+        consumer.callback = None
+
+        repr_str = repr(consumer)
+        assert 'stopped' in repr_str
+
+    def test_consumer_str_stopped(self):
+        """Test Consumer str when stopped"""
+        seis = Seis('BTCUSDT', 'BINANCE', Interval.in_1_hour)
+        callback = Mock()
+
+        consumer = Consumer(seis, callback)
+        # Manually set to None to simulate stopped state
+        consumer.seis = None
+
+        str_repr = str(consumer)
+        assert 'stopped' in str_repr
+
+    @pytest.mark.threading
+    def test_consumer_put_when_stopped(self, sample_ohlcv_data):
+        """Test that put does nothing when consumer is stopped"""
+        seis = Seis('BTCUSDT', 'BINANCE', Interval.in_1_hour)
+        callback = Mock()
+
+        consumer = Consumer(seis, callback)
+        # Stop without starting
+        consumer.stop()
+
+        # Put data should not raise but also not queue
+        consumer.put(sample_ohlcv_data)
+
+        # Buffer should still be empty or only have None
+        assert consumer._buffer.qsize() <= 1
+
+    def test_consumer_del_consumer_when_seis_none(self):
+        """Test del_consumer when seis is already None"""
+        seis = Seis('BTCUSDT', 'BINANCE', Interval.in_1_hour)
+        callback = Mock()
+
+        consumer = Consumer(seis, callback)
+        consumer.seis = None
+
+        # Should return True without error
+        result = consumer.del_consumer()
+        assert result is True

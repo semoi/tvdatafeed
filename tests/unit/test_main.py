@@ -139,11 +139,15 @@ class TestTvDatafeed:
 
             assert results == []
 
-    def test_create_df_valid_data(self, sample_websocket_message):
+    def test_create_df_valid_data(self):
         """Test DataFrame creation from valid WebSocket data"""
         tv = TvDatafeed()
 
-        df = tv._TvDatafeed__create_df(sample_websocket_message, 'BTCUSDT')
+        # Use a single-line format that matches what __create_df expects
+        # The regex expects: "s":[{"i":0,"v":[timestamp,o,h,l,c,v]}]
+        raw_data = '{"s":[{"i":0,"v":[1609459200,29000.0,29500.0,28500.0,29200.0,15000000.0]}]}'
+
+        df = tv._TvDatafeed__create_df(raw_data, 'BTCUSDT')
 
         assert df is not None
         assert isinstance(df, pd.DataFrame)
@@ -165,15 +169,17 @@ class TestTvDatafeed:
 
     def test_create_df_no_volume(self):
         """Test DataFrame creation when volume data is missing"""
-        # Create data without volume
-        raw_data = '''{"s":[{"v":[1609459200,29000,29500,28500,29200]}]}'''
+        # Create data without volume (5 values instead of 6)
+        # Format: {"s":[{"i":0,"v":[timestamp,o,h,l,c]}]}
+        raw_data = '{"s":[{"i":0,"v":[1609459200,29000,29500,28500,29200]}]}'
 
         tv = TvDatafeed()
         df = tv._TvDatafeed__create_df(raw_data, 'BTCUSDT')
 
-        # Should still create df with volume=0
+        # Should still create df with volume=0.0
         assert df is not None
         assert 'volume' in df.columns
+        assert df['volume'].iloc[0] == 0.0
 
     def test_auth_captcha_required(self):
         """Test authentication when CAPTCHA is required"""

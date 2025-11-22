@@ -96,6 +96,54 @@ def temp_env_vars(monkeypatch):
     monkeypatch.setenv('TV_2FA_CODE', '123456')
 
 
+@pytest.fixture
+def mock_2fa_required_response():
+    """Mock response when 2FA is required"""
+    response = Mock()
+    response.status_code = 200
+    response.json.return_value = {
+        'two_factor_required': True,
+        'two_factor_method': 'totp'
+    }
+    response.raise_for_status = Mock()
+    return response
+
+
+@pytest.fixture
+def mock_2fa_success_response():
+    """Mock successful 2FA response"""
+    response = Mock()
+    response.status_code = 200
+    response.json.return_value = {
+        'user': {
+            'auth_token': 'test_token_2fa_12345',
+            'username': 'testuser'
+        }
+    }
+    response.raise_for_status = Mock()
+    return response
+
+
+@pytest.fixture
+def mock_2fa_invalid_code_response():
+    """Mock 2FA response with invalid code"""
+    response = Mock()
+    response.status_code = 200
+    response.json.return_value = {
+        'error': 'Invalid verification code',
+        'code': 'invalid_code'
+    }
+    response.raise_for_status = Mock()
+    return response
+
+
+@pytest.fixture
+def valid_totp_secret():
+    """A valid TOTP secret for testing"""
+    # This is a test secret, not a real one
+    return 'JBSWY3DPEHPK3PXP'
+
+
 # Marks for test categorization
 def pytest_configure(config):
     """Register custom markers"""

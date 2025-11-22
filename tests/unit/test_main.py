@@ -22,7 +22,11 @@ class TestTvDatafeed:
 
     def test_tvdatafeed_creation_with_auth(self, mock_auth_response):
         """Test creating TvDatafeed with authentication"""
-        with patch('tvDatafeed.main.requests.post', return_value=mock_auth_response):
+        with patch('tvDatafeed.main.requests.Session') as mock_session_class:
+            mock_session = MagicMock()
+            mock_session.post.return_value = mock_auth_response
+            mock_session_class.return_value = mock_session
+
             tv = TvDatafeed(username='testuser', password='testpass')
 
             assert tv.token == 'test_token_12345'
@@ -36,7 +40,11 @@ class TestTvDatafeed:
             'code': 'invalid_credentials'
         }
 
-        with patch('tvDatafeed.main.requests.post', return_value=mock_response):
+        with patch('tvDatafeed.main.requests.Session') as mock_session_class:
+            mock_session = MagicMock()
+            mock_session.post.return_value = mock_response
+            mock_session_class.return_value = mock_session
+
             with pytest.raises(AuthenticationError):
                 TvDatafeed(username='testuser', password='wrongpass')
 
@@ -176,7 +184,11 @@ class TestTvDatafeed:
             'code': 'recaptcha_required'
         }
 
-        with patch('tvDatafeed.main.requests.post', return_value=mock_response):
+        with patch('tvDatafeed.main.requests.Session') as mock_session_class:
+            mock_session = MagicMock()
+            mock_session.post.return_value = mock_response
+            mock_session_class.return_value = mock_session
+
             with pytest.raises(CaptchaRequiredError) as exc_info:
                 TvDatafeed(username='testuser', password='testpass')
 
@@ -221,7 +233,11 @@ class TestTvDatafeed:
             'code': 'invalid_credentials'
         }
 
-        with patch('tvDatafeed.main.requests.post', return_value=mock_response):
+        with patch('tvDatafeed.main.requests.Session') as mock_session_class:
+            mock_session = MagicMock()
+            mock_session.post.return_value = mock_response
+            mock_session_class.return_value = mock_session
+
             with pytest.raises(AuthenticationError) as exc_info:
                 TvDatafeed(username='testuser', password='wrongpass')
 
@@ -761,3 +777,212 @@ class TestDateRangeFeature:
 
         assert df is not None
         assert 'timezone' not in df.attrs or df.attrs.get('timezone') is None
+
+
+@pytest.mark.unit
+class TestTwoFactorAuthentication:
+    """Test Two-Factor Authentication (2FA/TOTP) support"""
+
+    def test_2fa_params_stored(self, valid_totp_secret):
+        """Test that 2FA parameters are stored correctly"""
+        tv = TvDatafeed(totp_secret=valid_totp_secret, totp_code='123456')
+
+        assert tv._totp_secret == valid_totp_secret
+        assert tv._totp_code == '123456'
+
+    def test_2fa_params_from_env(self, monkeypatch, valid_totp_secret):
+        """Test that 2FA parameters are read from environment"""
+        monkeypatch.setenv('TV_TOTP_SECRET', valid_totp_secret)
+        monkeypatch.setenv('TV_2FA_CODE', '654321')
+
+        tv = TvDatafeed()
+
+        assert tv._totp_secret == valid_totp_secret
+        assert tv._totp_code == '654321'
+
+    def test_2fa_params_priority_over_env(self, monkeypatch, valid_totp_secret):
+        """Test that parameters take priority over environment variables"""
+        monkeypatch.setenv('TV_TOTP_SECRET', 'ENVENVENVENV')
+        monkeypatch.setenv('TV_2FA_CODE', '111111')
+
+        tv = TvDatafeed(totp_secret=valid_totp_secret, totp_code='999999')
+
+        # Parameters should take priority
+        assert tv._totp_secret == valid_totp_secret
+        assert tv._totp_code == '999999'
+
+    def test_get_totp_code_manual(self):
+        """Test _get_totp_code returns manual code when provided"""
+        tv = TvDatafeed(totp_code='123456')
+
+        code = tv._get_totp_code()
+
+        assert code == '123456'
+
+    def test_get_totp_code_generated(self, valid_totp_secret):
+        """Test _get_totp_code generates code from secret"""
+        tv = TvDatafeed(totp_secret=valid_totp_secret)
+
+        code = tv._get_totp_code()
+
+        # Should be a 6-digit code
+        assert code is not None
+        assert len(code) == 6
+        assert code.isdigit()
+
+    def test_get_totp_code_none_when_not_configured(self):
+        """Test _get_totp_code returns None when neither secret nor code provided"""
+        tv = TvDatafeed()
+
+        code = tv._get_totp_code()
+
+        assert code is None
+
+    def test_get_totp_code_manual_priority(self, valid_totp_secret):
+        """Test that manual code takes priority over secret"""
+        tv = TvDatafeed(totp_secret=valid_totp_secret, totp_code='111111')
+
+        code = tv._get_totp_code()
+
+        # Manual code should be returned, not generated one
+        assert code == '111111'
+
+    def test_get_totp_code_invalid_secret(self):
+        """Test _get_totp_code raises error for invalid secret"""
+        from tvDatafeed import ConfigurationError
+
+        tv = TvDatafeed(totp_secret='INVALID!!!')
+
+        with pytest.raises(ConfigurationError) as exc_info:
+            tv._get_totp_code()
+
+        assert 'Invalid TOTP secret' in str(exc_info.value)
+
+    def test_2fa_flow_success(
+        self,
+        mock_2fa_required_response,
+        mock_2fa_success_response,
+        valid_totp_secret
+    ):
+        """Test successful 2FA authentication flow"""
+        with patch('tvDatafeed.main.requests.Session') as mock_session_class:
+            mock_session = MagicMock()
+            # First call returns 2FA required, second call returns success
+            mock_session.post.side_effect = [
+                mock_2fa_required_response,
+                mock_2fa_success_response
+            ]
+            mock_session_class.return_value = mock_session
+
+            tv = TvDatafeed(
+                username='testuser',
+                password='testpass',
+                totp_secret=valid_totp_secret
+            )
+
+            assert tv.token == 'test_token_2fa_12345'
+            assert mock_session.post.call_count == 2
+
+    def test_2fa_flow_with_manual_code(
+        self,
+        mock_2fa_required_response,
+        mock_2fa_success_response
+    ):
+        """Test 2FA authentication flow with manual code"""
+        with patch('tvDatafeed.main.requests.Session') as mock_session_class:
+            mock_session = MagicMock()
+            mock_session.post.side_effect = [
+                mock_2fa_required_response,
+                mock_2fa_success_response
+            ]
+            mock_session_class.return_value = mock_session
+
+            tv = TvDatafeed(
+                username='testuser',
+                password='testpass',
+                totp_code='123456'
+            )
+
+            assert tv.token == 'test_token_2fa_12345'
+            # Verify 2FA endpoint was called with the code
+            second_call = mock_session.post.call_args_list[1]
+            assert second_call[1]['data']['code'] == '123456'
+
+    def test_2fa_required_but_not_provided(self, mock_2fa_required_response):
+        """Test that TwoFactorRequiredError is raised when 2FA is required but not provided"""
+        from tvDatafeed import TwoFactorRequiredError
+
+        with patch('tvDatafeed.main.requests.Session') as mock_session_class:
+            mock_session = MagicMock()
+            mock_session.post.return_value = mock_2fa_required_response
+            mock_session_class.return_value = mock_session
+
+            with pytest.raises(TwoFactorRequiredError) as exc_info:
+                TvDatafeed(username='testuser', password='testpass')
+
+            assert 'Two-factor authentication required' in str(exc_info.value)
+
+    def test_2fa_invalid_code(
+        self,
+        mock_2fa_required_response,
+        mock_2fa_invalid_code_response,
+        valid_totp_secret
+    ):
+        """Test 2FA with invalid code raises AuthenticationError"""
+        with patch('tvDatafeed.main.requests.Session') as mock_session_class:
+            mock_session = MagicMock()
+            mock_session.post.side_effect = [
+                mock_2fa_required_response,
+                mock_2fa_invalid_code_response
+            ]
+            mock_session_class.return_value = mock_session
+
+            with pytest.raises(AuthenticationError) as exc_info:
+                TvDatafeed(
+                    username='testuser',
+                    password='testpass',
+                    totp_code='000000'
+                )
+
+            assert 'Invalid' in str(exc_info.value) or 'invalid' in str(exc_info.value)
+
+    def test_2fa_totp_secret_cleaned(self, valid_totp_secret):
+        """Test that TOTP secret is cleaned (spaces removed, uppercase)"""
+        # Add spaces and lowercase
+        messy_secret = 'jbsw y3dp ehpk 3pxp'
+
+        tv = TvDatafeed(totp_secret=messy_secret)
+
+        # Should still generate a valid code
+        code = tv._get_totp_code()
+        assert code is not None
+        assert len(code) == 6
+        assert code.isdigit()
+
+    def test_2fa_not_required(self, mock_auth_response):
+        """Test authentication without 2FA when account doesn't have it enabled"""
+        with patch('tvDatafeed.main.requests.Session') as mock_session_class:
+            mock_session = MagicMock()
+            mock_session.post.return_value = mock_auth_response
+            mock_session_class.return_value = mock_session
+
+            # Should authenticate without 2FA
+            tv = TvDatafeed(username='testuser', password='testpass')
+
+            assert tv.token == 'test_token_12345'
+            # Only one call (no 2FA needed)
+            assert mock_session.post.call_count == 1
+
+    def test_docstring_examples_present(self):
+        """Verify that 2FA examples are in the TvDatafeed docstring"""
+        docstring = TvDatafeed.__init__.__doc__
+
+        assert 'totp_secret' in docstring
+        assert 'totp_code' in docstring
+        assert '2FA' in docstring
+        assert 'TV_TOTP_SECRET' in docstring
+
+    def test_2fa_url_configured(self):
+        """Test that 2FA URL is correctly configured"""
+        assert hasattr(TvDatafeed, '_TvDatafeed__2fa_url')
+        assert 'two-factor' in TvDatafeed._TvDatafeed__2fa_url

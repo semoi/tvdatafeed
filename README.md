@@ -120,6 +120,54 @@ tv = TvDatafeed(auth_token=os.getenv('TV_AUTH_TOKEN'))
 
 See [CAPTCHA Workaround](#captcha-workaround) section for detailed instructions.
 
+**Option 4: Two-Factor Authentication (2FA)**
+
+If you have 2FA enabled on your TradingView account, you can authenticate automatically:
+
+**Method A: TOTP Secret Key (Recommended)**
+
+The most convenient method is to use your TOTP secret key, which allows automatic code generation:
+
+```bash
+# In your .env file or shell
+export TV_USERNAME="your_username"
+export TV_PASSWORD="your_password"
+export TV_TOTP_SECRET="JBSWY3DPEHPK3PXP"  # Your TOTP secret key
+```
+
+```python
+import os
+from dotenv import load_dotenv
+
+load_dotenv()  # Load from .env file
+
+tv = TvDatafeed(
+    username=os.getenv('TV_USERNAME'),
+    password=os.getenv('TV_PASSWORD'),
+    totp_secret=os.getenv('TV_TOTP_SECRET')
+)
+```
+
+> **How to get your TOTP secret key:**
+> 1. Go to TradingView Settings > Security > Two-factor authentication
+> 2. When setting up 2FA, click "Can't scan?" to reveal the secret key
+> 3. The key looks like: `JBSWY3DPEHPK3PXP` (base32 encoded)
+> 4. Note: If 2FA is already set up, you may need to disable and re-enable it to see the secret
+
+**Method B: Manual 2FA Code**
+
+If you can't get the TOTP secret, you can provide the 6-digit code directly:
+
+```python
+tv = TvDatafeed(
+    username='your_username',
+    password='your_password',
+    totp_code='123456'  # Current 6-digit code from your authenticator app
+)
+```
+
+> **Note:** Manual codes expire every 30 seconds, so this method requires you to update the code each time you connect.
+
 ### Historical Data
 
 #### Basic Usage

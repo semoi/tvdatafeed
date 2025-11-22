@@ -579,11 +579,15 @@ Résultats avec JWT token (Pro Premium) :
 - [x] ✅ Tests unitaires datafeed.py (71 tests)
 - [x] ✅ Tests exceptions et config (100% couverture)
 
-### Phase 5 : UX & Documentation ✅ PARTIELLEMENT COMPLÉTÉ
+### Phase 5 : UX & Documentation ✅ COMPLÉTÉ (Nov 2025)
 - [x] ✅ Exemples complets (2FA, date range, quiet mode, CAPTCHA)
 - [x] ✅ Guide de troubleshooting (README.md)
 - [x] ✅ Messages d'erreur clairs (exceptions personnalisées)
-- [ ] Documentation API complète (Sphinx/MkDocs)
+- [x] ✅ Documentation API complète (MkDocs Material)
+  - 19 fichiers de documentation
+  - API Reference complete (TvDatafeed, TvDatafeedLive, Seis, Consumer, Exceptions, Config)
+  - Getting Started guides (installation, quickstart, authentication)
+  - Examples (basic, 2fa, live-feed, date-range)
 
 ---
 
@@ -619,13 +623,33 @@ Résultats avec JWT token (Pro Premium) :
 
 ---
 
-**Version** : 1.5
+**Version** : 1.6
 **Dernière mise à jour** : 2025-11-22
-**Statut** : ✅ Phase 1, Phase 2, Phase 3 et Phase 4 complétées | ⚠️ reCAPTCHA bloque auth username/password
+**Statut** : ✅ Phase 1, Phase 2, Phase 3, Phase 4 et Phase 5 complétées | ⚠️ reCAPTCHA bloque auth username/password
 
 ---
 
 ## Historique des mises à jour
+
+### Version 1.6 (2025-11-22)
+- ✅ Phase 5 complétée : UX & Documentation
+- ✅ Documentation API complète avec MkDocs Material
+- ✅ Configuration mkdocs.yml avec Material theme, navigation tabs, search, code highlighting
+- ✅ 19 fichiers de documentation créés :
+  - `docs/index.md` : Page d'accueil avec features et quick start
+  - `docs/api/index.md` : Vue d'ensemble API avec liens vers toutes les classes
+  - `docs/api/tvdatafeed.md` : Documentation complète TvDatafeed (paramètres, méthodes, exemples)
+  - `docs/api/tvdatafeedlive.md` : Documentation TvDatafeedLive avec architecture threading
+  - `docs/api/helpers.md` : Seis, Consumer, utils, validators
+  - `docs/api/exceptions.md` : Hiérarchie complète des exceptions avec patterns de handling
+  - `docs/api/configuration.md` : NetworkConfig, AuthConfig, DataConfig, ThreadingConfig
+  - `docs/getting-started/installation.md`, `quickstart.md`, `authentication.md`
+  - `docs/examples/basic.md`, `2fa.md`, `live-feed.md`, `date-range.md`
+- ✅ Tables de paramètres avec types, defaults, descriptions
+- ✅ Exemples de code pour chaque méthode (tabs pour différentes options)
+- ✅ Documentation complète des variables d'environnement
+- ✅ Patterns avancés : keyring, AWS Secrets Manager, retry patterns
+- ✅ Revue architecturale Phase 5 : 9/10 - APPROUVÉ
 
 ### Version 1.5 (2025-11-22)
 - 🔴 **DÉCOUVERTE CRITIQUE** : reCAPTCHA invisible bloque l'authentification username/password

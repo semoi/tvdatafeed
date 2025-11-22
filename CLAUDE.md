@@ -22,6 +22,14 @@ tvdatafeed/
 │   ├── datafeed.py           # TvDatafeedLive (live data + threading)
 │   ├── seis.py               # Seis (Symbol-Exchange-Interval Set)
 │   └── consumer.py           # Consumer (gestion callbacks)
+├── scripts/
+│   ├── get_auth_token.py     # Extraction JWT via Playwright (contourne reCAPTCHA)
+│   └── token_manager.py      # Gestion lifecycle des tokens (cache, refresh, validation)
+├── examples/
+│   └── automated_data_fetch.py  # Exemple script automatisé serveur
+├── tests/
+│   ├── unit/                 # Tests unitaires
+│   └── integration/          # Tests d'intégration
 ├── setup.py                  # Configuration installation
 ├── requirements.txt          # Dépendances
 ├── README.md                # Documentation utilisateur
@@ -85,8 +93,8 @@ Autres : `1D (daily), 1W (weekly), 1M (monthly)`
 #### Sécurité & Authentification
 - ✅ **COMPLÉTÉ** : Support 2FA/TOTP implémenté (PR #30 - Nov 2025)
 - ✅ **COMPLÉTÉ** : Credentials masqués dans les logs (mask_sensitive_data)
-- 🔴 **BLOQUANT** : reCAPTCHA invisible bloque l'auth username/password (voir section dédiée)
-- 🟡 Gérer l'expiration et le renouvellement des tokens JWT
+- ✅ **CONTOURNÉ** : reCAPTCHA invisible → Solution JWT via Playwright (scripts/get_auth_token.py)
+- ✅ **COMPLÉTÉ** : Gestion expiration/renouvellement tokens JWT (scripts/token_manager.py)
 - 🟡 Nettoyer les credentials de la mémoire après auth
 
 #### WebSocket & Network
@@ -660,6 +668,23 @@ Résultats avec JWT token (Pro Premium) :
 - ✅ Tests d'intégration réels validés avec JWT token (7/9 tests passent)
 - 📝 Clés reCAPTCHA TradingView identifiées
 - 📝 Différence documentée entre `sessionid` (cookie) et `auth_token` (JWT)
+
+### Version 1.6 (2025-11-23)
+- ✅ **Scripts d'automatisation token** créés :
+  - `scripts/get_auth_token.py` : Extraction JWT via Playwright + stealth mode
+  - `scripts/token_manager.py` : Gestion lifecycle tokens (cache, validation, refresh)
+  - `examples/automated_data_fetch.py` : Exemple utilisation serveur automatisé
+- ✅ **Tests complets** pour token scripts :
+  - `tests/unit/test_token_manager.py` : 28 tests unitaires
+  - `tests/integration/test_token_integration.py` : 13 tests d'intégration
+  - Couverture : token_manager.py 66%, get_auth_token.py 41%
+- ✅ **Fonctionnalités token_manager** :
+  - `get_valid_token()` : Récupère token valide (env > cache > refresh)
+  - `is_token_valid()` : Valide expiration avec threshold configurable
+  - `get_token_info()` : Extrait plan, permissions, expiration du JWT
+  - `save_cached_token()` / `get_cached_token()` : Cache sécurisé
+  - `refresh_token()` : Renouvellement automatique via Playwright
+- 📝 Documentation mise à jour (CLAUDE.md, README.md)
 
 ### Version 1.4 (2025-11-22)
 - ✅ Phase 4 complétée : Tests & Qualité

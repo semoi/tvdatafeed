@@ -787,6 +787,59 @@ python examples/captcha_workaround.py
 - 🔄 **Session-tied:** Token is tied to your TradingView session.
 - 📝 **Storage:** Store in environment variables or secure configuration files.
 
+#### Automated Token Retrieval (Server Scripts)
+
+For automated/scheduled scripts running on servers, you can use the token management utilities:
+
+##### Installation
+
+```bash
+pip install playwright playwright-stealth pyotp
+playwright install chromium
+```
+
+##### Setup
+
+1. Configure your `.env` file:
+```bash
+TV_USERNAME=your_username
+TV_PASSWORD=your_password
+TV_TOTP_SECRET=your_totp_secret  # Optional, for 2FA accounts
+```
+
+2. Extract token (first time or when expired):
+```bash
+python scripts/get_auth_token.py
+```
+
+##### Usage in Your Scripts
+
+```python
+from scripts.token_manager import get_valid_token, get_token_info
+from tvDatafeed import TvDatafeed, Interval
+
+# Get valid token (auto-refreshes if expired)
+token = get_valid_token(auto_refresh=True)
+
+if token:
+    # Check token info
+    info = get_token_info(token)
+    print(f"Plan: {info['plan']}, Expires: {info['expires_at']}")
+
+    # Use with TvDatafeed
+    tv = TvDatafeed(auth_token=token)
+    df = tv.get_hist('BTCUSDT', 'BINANCE', Interval.in_1_hour, 100)
+```
+
+##### Token Manager Features
+
+- **Priority**: Environment variable > Cache file > Auto-refresh
+- **Validation**: Checks expiration with configurable threshold (default: 1 hour before expiry)
+- **Caching**: Stores token in `.token_cache.json` with secure permissions
+- **Auto-refresh**: Uses Playwright + stealth mode to get fresh token
+
+See [examples/automated_data_fetch.py](examples/automated_data_fetch.py) for a complete server script example.
+
 ### "Timeout errors"
 
 **Possible causes:**

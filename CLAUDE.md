@@ -44,9 +44,9 @@ tvdatafeed/
   - ✅ Timeout WebSocket configurable (ws_timeout, TV_WS_TIMEOUT)
   - ✅ Gestion d'erreurs robuste (exceptions personnalisées)
 - **Limitations restantes** :
-  - ❌ Pas de retry automatique sur connexion WebSocket
-  - ❌ Pas de timeout cumulatif dans __get_response()
-  - ❌ Rate limiting TradingView non géré
+  - ✅ Retry automatique sur connexion WebSocket (Phase 2)
+  - ✅ Timeout cumulatif dans __get_response() (Phase 2)
+  - ❌ Rate limiting TradingView non géré (Phase future)
 
 #### 2. TvDatafeedLive (datafeed.py)
 - **Rôle** : Extension avec support temps réel via threading
@@ -96,10 +96,10 @@ Autres : `1D (daily), 1W (weekly), 1M (monthly)`
 - 🟡 Gérer les rate limits de TradingView (HTTP 429)
 
 #### Threading & Concurrence
-- 🔴 Vérifier les race conditions potentielles
-- 🟡 Améliorer la gestion du shutdown propre
-- 🟡 Éviter les deadlocks avec timeouts appropriés
-- 🟡 Memory leaks dans les threads long-running
+- ✅ **COMPLÉTÉ** : Audit race conditions (12 corrections - Phase 3)
+- ✅ **COMPLÉTÉ** : Shutdown propre avec `_graceful_shutdown()` et timeouts
+- ✅ **COMPLÉTÉ** : Locks avec timeout pour éviter deadlocks
+- ✅ **COMPLÉTÉ** : Cleanup des références dans threads (finally blocks)
 
 #### Data Processing
 - 🟡 Validation robuste des données reçues
@@ -260,6 +260,184 @@ Les agents doivent collaborer sur les tâches complexes :
 
 ---
 
+## Patterns de Concurrence
+
+Cette section documente les patterns de threading et concurrence utilisés dans le projet TvDatafeed, suite aux corrections de la Phase 3.
+
+### Constantes de configuration
+
+| Constante | Valeur | Fichier | Description |
+|-----------|--------|---------|-------------|
+| `RETRY_LIMIT` | 50 | datafeed.py | Nombre max de tentatives pour récupérer des données |
+| `SHUTDOWN_TIMEOUT` | 10.0s | datafeed.py | Timeout pour le shutdown gracieux du main thread |
+| `CONSUMER_STOP_TIMEOUT` | 5.0s | datafeed.py | Timeout pour l'arrêt des threads consumer |
+
+### Locks par composant
+
+#### TvDatafeedLive (datafeed.py)
+| Lock | Attribut | Protège | Usage |
+|------|----------|---------|-------|
+| Lock principal | `_lock` | `_sat`, opérations publiques | Toutes les méthodes publiques (`new_seis`, `del_seis`, etc.) |
+| Lock thread | `_thread_lock` | `_main_thread` | Accès/modification de la référence au thread principal |
+| Lock état | `_state_lock` (dans _SeisesAndTrigger) | `_trigger_quit`, `_trigger_dt` | Synchronisation de l'état du trigger |
+
+#### Consumer (consumer.py)
+| Lock | Attribut | Protège | Usage |
+|------|----------|---------|-------|
+| Lock attributs | `_lock` | `_seis`, `_callback`, `_stopped` | Accès thread-safe aux propriétés |
+
+#### Seis (seis.py)
+| Lock | Attribut | Protège | Usage |
+|------|----------|---------|-------|
+| Lock consumers | `_consumers_lock` | `_consumers` | Ajout/suppression de consumers |
+| Lock updated | `_updated_lock` | `_updated` | Détection de nouvelles données |
+
+### Patterns de shutdown implementés
+
+#### 1. Flag de shutdown (`_shutdown_in_progress`)
+```python
+# datafeed.py - TvDatafeedLive
+with self._lock:
+    if self._shutdown_in_progress:
+        return  # Already shutting down
+    self._shutdown_in_progress = True
+```
+- Empêche les nouvelles opérations pendant le shutdown
+- Vérifié dans `new_seis()` avant création
+
+#### 2. Event d'interruption (`_trigger_interrupt`)
+```python
+# datafeed.py - _SeisesAndTrigger
+def quit(self):
+    with self._state_lock:
+        self._trigger_quit = True
+    self._trigger_interrupt.set()
+```
+- Interrompt l'attente du trigger sans busy loop
+- Permet un réveil immédiat pour shutdown
+
+#### 3. Flag d'arrêt (`_stopped` dans Consumer)
+```python
+# consumer.py - Consumer
+def stop(self):
+    with self._lock:
+        if self._stopped:
+            return  # Already stopped
+        self._stopped = True
+    # Signal shutdown via queue
+    self._buffer.put(None, timeout=1.0)
+```
+- Double vérification (flag + None dans queue)
+- Timeout sur put pour éviter deadlock
+
+#### 4. Shutdown gracieux (`_graceful_shutdown()`)
+```python
+# datafeed.py - TvDatafeedLive
+def _graceful_shutdown(self):
+    # 1. Collecter les consumers sous lock
+    # 2. Les arrêter et les joindre hors lock
+    # 3. Attendre avec timeout (CONSUMER_STOP_TIMEOUT)
+```
+- Copie des listes avant itération
+- Join avec timeout pour éviter blocage infini
+- Logging des threads qui ne terminent pas
+
+### Best practices threading
+
+#### 1. Copier les listes avant itération
+```python
+# Évite modification pendant itération
+seises_copy = list(self._sat)
+for seis in seises_copy:
+    # Safe iteration
+```
+
+#### 2. Acquérir les locks avec timeout
+```python
+if self._lock.acquire(timeout=timeout) is False:
+    return False  # Timeout
+try:
+    # Critical section
+finally:
+    self._lock.release()
+```
+
+#### 3. Séparer les locks par granularité
+```python
+self._lock = threading.Lock()         # Opérations principales
+self._thread_lock = threading.Lock()  # Accès au thread
+# Évite les deadlocks, améliore la concurrence
+```
+
+#### 4. Propriétés thread-safe
+```python
+@property
+def seis(self):
+    with self._lock:
+        return self._seis
+
+@seis.setter
+def seis(self, value):
+    with self._lock:
+        self._seis = value
+```
+
+#### 5. Utiliser des Events au lieu de polling
+```python
+# Bon : Event.wait() avec timeout
+interrupted = self._trigger_interrupt.wait(wait_seconds)
+
+# Mauvais : polling actif
+while not self._trigger_quit:
+    time.sleep(0.1)  # Busy loop
+```
+
+#### 6. Cleanup dans finally
+```python
+def run(self):
+    try:
+        while True:
+            # Processing loop
+    finally:
+        # Toujours exécuté
+        with self._lock:
+            self._seis = None
+            self._callback = None
+            self._stopped = True
+```
+
+#### 7. Queue avec timeout
+```python
+# Lecture avec timeout pour vérification périodique
+data = self._buffer.get(timeout=1.0)
+
+# Écriture avec timeout pour éviter blocage
+self._buffer.put(data, timeout=5.0)
+```
+
+### Diagramme de synchronisation
+
+```
+TvDatafeedLive                  Consumer                    Seis
+      |                            |                          |
+      |-- _lock -------------------|--------------------------|
+      |   (opérations globales)    |                          |
+      |                            |                          |
+      |-- _thread_lock             |                          |
+      |   (accès _main_thread)     |                          |
+      |                            |                          |
+      |                            |-- _lock                  |
+      |                            |   (attributs)            |
+      |                            |                          |
+      |                            |                          |-- _consumers_lock
+      |                            |                          |   (liste consumers)
+      |                            |                          |
+      |                            |                          |-- _updated_lock
+      |                            |                          |   (détection new data)
+```
+
+---
+
 ## Roadmap prioritaire
 
 ### Phase 1 : Fondations solides ✅ COMPLÉTÉ (Nov 2025)
@@ -277,11 +455,11 @@ Les agents doivent collaborer sur les tâches complexes :
 - [ ] Gestion rate limiting TradingView HTTP 429 (Phase 3)
 - [x] ✅ Meilleure gestion des timeouts (configurable via param/env)
 
-### Phase 3 : Threading bullet-proof
-- [ ] Audit complet race conditions
-- [ ] Améliorer shutdown propre
-- [ ] Tests de charge threading
-- [ ] Documentation patterns concurrence
+### Phase 3 : Threading bullet-proof ✅ COMPLÉTÉ (Nov 2025)
+- [x] ✅ Audit complet race conditions (12 corrections)
+- [x] ✅ Améliorer shutdown propre (`_graceful_shutdown()`, flags, timeouts)
+- [x] ✅ Tests de charge threading
+- [x] ✅ Documentation patterns concurrence (section "Patterns de Concurrence")
 
 ### Phase 4 : Tests & Qualité ✅ PARTIELLEMENT COMPLÉTÉ
 - [x] ✅ Suite tests unitaires (100+ tests)
@@ -330,13 +508,25 @@ Les agents doivent collaborer sur les tâches complexes :
 
 ---
 
-**Version** : 1.2
+**Version** : 1.3
 **Dernière mise à jour** : 2025-11-22
-**Statut** : ✅ Phase 1 et Phase 2 complétées
+**Statut** : ✅ Phase 1, Phase 2 et Phase 3 complétées
 
 ---
 
 ## Historique des mises à jour
+
+### Version 1.3 (2025-11-22)
+- ✅ Phase 3 complétée : Threading bullet-proof
+- ✅ Audit complet des race conditions (12 corrections dans datafeed.py, consumer.py, seis.py)
+- ✅ Shutdown propre implementé (`_graceful_shutdown()`, `_shutdown_in_progress` flag)
+- ✅ Locks séparés par granularité (`_lock`, `_thread_lock`, `_state_lock`)
+- ✅ Propriétés thread-safe dans Consumer (`seis`, `callback` avec lock)
+- ✅ Locks dédiés dans Seis (`_consumers_lock`, `_updated_lock`)
+- ✅ Copie des listes avant itération pour éviter modification concurrente
+- ✅ Timeouts sur toutes les opérations de queue et join
+- ✅ Cleanup des références dans finally blocks
+- ✅ Documentation complète des patterns de concurrence (nouvelle section CLAUDE.md)
 
 ### Version 1.2 (2025-11-22)
 - ✅ Phase 2 complétée : Robustesse network

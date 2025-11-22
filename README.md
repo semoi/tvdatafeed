@@ -657,45 +657,50 @@ export TV_USERNAME="your_username"
 export TV_PASSWORD="your_password"
 ```
 
-### CAPTCHA Workaround
+### reCAPTCHA / Rate Limit Issue (Common)
 
-TradingView may require CAPTCHA verification for security. When this happens, you'll see:
+When trying to authenticate with username/password, you may see this error:
 
 ```
-CaptchaRequiredError: TradingView requires CAPTCHA verification.
-This is a security measure and cannot be bypassed automatically.
+AuthenticationError: Authentication failed: You have been locked out. Please try again later.
 ```
 
-**Solution: Extract auth token manually**
+**This is NOT a real rate limit** - it's TradingView's **invisible reCAPTCHA** blocking automated logins.
 
-#### Step 1: Log in via Browser
+#### Why This Happens
 
-1. Open https://www.tradingview.com in your browser
-2. Log in and complete the CAPTCHA
-3. Wait for successful login
+TradingView uses Google reCAPTCHA v2 invisible on their login page. This reCAPTCHA:
+- Runs automatically in the browser via JavaScript
+- Validates that you're human before allowing login
+- **Cannot be bypassed** by Python scripts (no JavaScript execution)
 
-#### Step 2: Extract Token from Browser
+When reCAPTCHA validation fails (which it always does from scripts), TradingView returns a generic "rate_limit" error instead of a clear "reCAPTCHA required" message.
 
-**Chrome:**
-1. Press F12 (or Ctrl+Shift+I / Cmd+Option+I)
-2. Go to "Application" tab
-3. Expand "Cookies" → "https://www.tradingview.com"
-4. Find cookie named "authToken"
-5. Copy the entire value
+#### Solution: Use JWT Auth Token (Recommended)
 
-**Firefox:**
-1. Press F12 (or Ctrl+Shift+I / Cmd+Option+I)
-2. Go to "Storage" tab
-3. Expand "Cookies" → "https://www.tradingview.com"
-4. Find cookie named "authToken"
-5. Copy the entire value
+Instead of username/password, extract your **JWT auth token** from the browser and use it directly.
 
-#### Step 3: Use Token in Code
+##### Step 1: Get Your JWT Token
+
+1. **Log in** to https://www.tradingview.com in your browser
+2. **Open DevTools** (F12 or Ctrl+Shift+I)
+3. **Go to Console** tab
+4. **Type this command:**
+   ```javascript
+   window.user.auth_token
+   ```
+5. **Copy the token** - it looks like this:
+   ```
+   eyJhbGciOiJSUzUxMiIsImtpZCI6IkdaeFUiLCJ0eXAiOiJKV1QifQ.eyJ1c2VyX2lkIjo...
+   ```
+
+##### Step 2: Use the Token
 
 **Method A: Environment Variable (Recommended)**
 
 ```bash
-export TV_AUTH_TOKEN="paste_your_token_here"
+# In your .env file or shell
+export TV_AUTH_TOKEN="eyJhbGciOiJSUzUxMiIs..."
 ```
 
 ```python
@@ -703,6 +708,9 @@ import os
 from tvDatafeed import TvDatafeed
 
 tv = TvDatafeed(auth_token=os.getenv('TV_AUTH_TOKEN'))
+
+# Now you can fetch data with full Pro/Premium access
+df = tv.get_hist('BTCUSDT', 'BINANCE', Interval.in_1_hour, n_bars=5000)
 ```
 
 **Method B: Direct Usage (Testing Only)**
@@ -710,8 +718,59 @@ tv = TvDatafeed(auth_token=os.getenv('TV_AUTH_TOKEN'))
 ```python
 from tvDatafeed import TvDatafeed
 
-tv = TvDatafeed(auth_token='your_token_here')
+tv = TvDatafeed(auth_token='eyJhbGciOiJSUzUxMiIs...')
 ```
+
+##### Alternative: Via Network Tab
+
+If `window.user.auth_token` doesn't work:
+
+1. **Open DevTools** > **Network** tab
+2. **Filter by "WS"** (WebSocket)
+3. **Refresh the page** or open a chart
+4. **Click on the WebSocket connection** to `wss://data.tradingview.com`
+5. **Go to "Messages" tab**
+6. **Look for** `set_auth_token` message - copy the token value
+
+#### Important Notes
+
+| Aspect | Details |
+|--------|---------|
+| **Token Type** | JWT (JSON Web Token) - starts with `eyJ` |
+| **NOT the sessionid** | The `sessionid` cookie does NOT work for WebSocket auth |
+| **Expiration** | Tokens expire (usually 4-24 hours). Extract a new one when needed |
+| **Security** | Treat like a password - never commit to git |
+| **Plan Features** | Token includes your subscription (Pro, Premium, etc.) |
+
+#### Why Username/Password Doesn't Work
+
+```
+┌─────────────────┐     ┌──────────────────┐     ┌─────────────────┐
+│   Your Script   │────▶│   TradingView    │────▶│   reCAPTCHA    │
+│  (Python/HTTP)  │     │   Login Page     │     │   (Invisible)   │
+└─────────────────┘     └──────────────────┘     └─────────────────┘
+                                                         │
+                                                         ▼
+                                                 ┌─────────────────┐
+                                                 │  JavaScript     │
+                                                 │  Validation     │
+                                                 │  (Not in Python)│
+                                                 └─────────────────┘
+                                                         │
+                                                         ▼
+                                                 ┌─────────────────┐
+                                                 │  ❌ FAILS       │
+                                                 │  "rate_limit"   │
+                                                 └─────────────────┘
+```
+
+The script cannot execute JavaScript, so reCAPTCHA always fails, returning a misleading "rate_limit" error.
+
+### CAPTCHA Workaround (Legacy)
+
+> **Note:** This section is kept for backward compatibility. The [reCAPTCHA solution above](#recaptcha--rate-limit-issue-common) is the recommended approach.
+
+If you see `CaptchaRequiredError`, follow the JWT token extraction method above.
 
 #### Complete Example
 
@@ -721,11 +780,11 @@ See [examples/captcha_workaround.py](examples/captcha_workaround.py) for a compl
 python examples/captcha_workaround.py
 ```
 
-#### Important Notes
+#### Token Storage Best Practices
 
 - ⏱️ **Token Expiration:** Tokens expire after some time. Extract a new one if needed.
 - 🔒 **Security:** Treat your token like a password. Never commit it to version control.
-- 🔄 **Session-tied:** Token is tied to your browser session. Logging out invalidates it.
+- 🔄 **Session-tied:** Token is tied to your TradingView session.
 - 📝 **Storage:** Store in environment variables or secure configuration files.
 
 ### "Timeout errors"

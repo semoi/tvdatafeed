@@ -986,3 +986,317 @@ class TestTwoFactorAuthentication:
         """Test that 2FA URL is correctly configured"""
         assert hasattr(TvDatafeed, '_TvDatafeed__2fa_url')
         assert 'two-factor' in TvDatafeed._TvDatafeed__2fa_url
+
+
+@pytest.mark.unit
+class TestWebSocketRetryAndTimeout:
+    """Test WebSocket retry and cumulative timeout features (Phase 2)"""
+
+    # ==========================================================================
+    # Tests for __create_connection() retry behavior
+    # ==========================================================================
+
+    @patch('tvDatafeed.main.retry_with_backoff')
+    def test_create_connection_retry_on_timeout(self, mock_retry_with_backoff):
+        """Test that connection is retried after a timeout"""
+        mock_ws = Mock()
+        mock_retry_with_backoff.return_value = mock_ws
+
+        tv = TvDatafeed()
+        tv._TvDatafeed__create_connection()
+
+        # Verify retry_with_backoff was called with correct parameters
+        mock_retry_with_backoff.assert_called_once()
+        call_kwargs = mock_retry_with_backoff.call_args[1]
+
+        # Check that TimeoutError is in the exceptions to catch
+        assert TimeoutError in call_kwargs['exceptions']
+        assert call_kwargs['max_retries'] == 3  # Default max retries
+        assert call_kwargs['base_delay'] == 2.0  # Default base delay
+        assert call_kwargs['max_delay'] == 10.0  # Default max delay
+
+    @patch('tvDatafeed.main.retry_with_backoff')
+    def test_create_connection_retry_on_connection_error(self, mock_retry_with_backoff):
+        """Test that connection is retried after a connection error"""
+        mock_ws = Mock()
+        mock_retry_with_backoff.return_value = mock_ws
+
+        tv = TvDatafeed()
+        tv._TvDatafeed__create_connection()
+
+        # Verify retry_with_backoff was called
+        mock_retry_with_backoff.assert_called_once()
+        call_kwargs = mock_retry_with_backoff.call_args[1]
+
+        # Check that ConnectionError and OSError are in the exceptions to catch
+        assert ConnectionError in call_kwargs['exceptions']
+        assert OSError in call_kwargs['exceptions']
+
+    @patch('tvDatafeed.main.retry_with_backoff')
+    def test_create_connection_max_retries_exceeded_timeout(self, mock_retry_with_backoff):
+        """Test that WebSocketTimeoutError is raised after all timeout retries fail"""
+        from tvDatafeed import WebSocketTimeoutError
+
+        # Simulate retry_with_backoff raising TimeoutError after all retries
+        mock_retry_with_backoff.side_effect = TimeoutError("Connection timed out")
+
+        tv = TvDatafeed()
+
+        with pytest.raises(WebSocketTimeoutError) as exc_info:
+            tv._TvDatafeed__create_connection()
+
+        assert 'timed out' in str(exc_info.value).lower()
+        assert '3 retry attempts' in str(exc_info.value)
+
+    @patch('tvDatafeed.main.retry_with_backoff')
+    def test_create_connection_max_retries_exceeded_connection_error(self, mock_retry_with_backoff):
+        """Test that WebSocketError is raised after all connection retries fail"""
+        from tvDatafeed import WebSocketError
+
+        # Simulate retry_with_backoff raising ConnectionError after all retries
+        mock_retry_with_backoff.side_effect = ConnectionError("Connection refused")
+
+        tv = TvDatafeed()
+
+        with pytest.raises(WebSocketError) as exc_info:
+            tv._TvDatafeed__create_connection()
+
+        assert 'Failed to connect' in str(exc_info.value)
+        assert '3 retry attempts' in str(exc_info.value)
+
+    @patch('tvDatafeed.main.create_connection')
+    @patch('tvDatafeed.main.retry_with_backoff')
+    def test_create_connection_success_after_retry(self, mock_retry_with_backoff, mock_create_connection):
+        """Test that connection succeeds after initial failures (simulated by retry_with_backoff)"""
+        mock_ws = Mock()
+        # retry_with_backoff successfully returns after internal retries
+        mock_retry_with_backoff.return_value = mock_ws
+
+        tv = TvDatafeed()
+        tv._TvDatafeed__create_connection()
+
+        # WebSocket should be set
+        assert tv.ws == mock_ws
+        # retry_with_backoff should have been called
+        mock_retry_with_backoff.assert_called_once()
+
+    @patch('tvDatafeed.main.retry_with_backoff')
+    def test_create_connection_on_retry_callback_called(self, mock_retry_with_backoff):
+        """Test that on_retry callback is passed to retry_with_backoff"""
+        mock_ws = Mock()
+        mock_retry_with_backoff.return_value = mock_ws
+
+        tv = TvDatafeed()
+        tv._TvDatafeed__create_connection()
+
+        # Verify on_retry callback was passed
+        call_kwargs = mock_retry_with_backoff.call_args[1]
+        assert 'on_retry' in call_kwargs
+        assert call_kwargs['on_retry'] is not None
+        assert callable(call_kwargs['on_retry'])
+
+    @patch('tvDatafeed.main.retry_with_backoff')
+    def test_create_connection_unexpected_error(self, mock_retry_with_backoff):
+        """Test that unexpected errors are wrapped in WebSocketError"""
+        from tvDatafeed import WebSocketError
+
+        # Simulate an unexpected error
+        mock_retry_with_backoff.side_effect = RuntimeError("Unexpected error")
+
+        tv = TvDatafeed()
+
+        with pytest.raises(WebSocketError) as exc_info:
+            tv._TvDatafeed__create_connection()
+
+        assert 'RuntimeError' in str(exc_info.value)
+        assert 'Unexpected error' in str(exc_info.value)
+
+    # ==========================================================================
+    # Tests for __get_response() cumulative timeout behavior
+    # ==========================================================================
+
+    def test_get_response_cumulative_timeout(self):
+        """Test that WebSocketTimeoutError is raised after cumulative timeout"""
+        from tvDatafeed import WebSocketTimeoutError
+        import time
+
+        tv = TvDatafeed()
+        # Set a very short max_response_time for testing
+        tv.max_response_time = 0.1  # 100ms
+
+        # Mock the WebSocket to return data slowly (never completing)
+        mock_ws = Mock()
+        # Return data that doesn't contain "series_completed"
+        mock_ws.recv.return_value = '~m~100~m~{"m":"some_message","p":[]}'
+        tv.ws = mock_ws
+
+        with pytest.raises(WebSocketTimeoutError) as exc_info:
+            tv._TvDatafeed__get_response()
+
+        error_msg = str(exc_info.value)
+        assert 'Timed out' in error_msg
+        assert 'series_completed' in error_msg
+        assert 'TV_MAX_RESPONSE_TIME' in error_msg
+
+    def test_get_response_env_var_timeout(self):
+        """Test that TV_MAX_RESPONSE_TIME environment variable is respected"""
+        import os
+
+        # Set environment variable
+        os.environ['TV_MAX_RESPONSE_TIME'] = '120.0'
+
+        try:
+            tv = TvDatafeed()
+            assert tv.max_response_time == 120.0
+        finally:
+            os.environ.pop('TV_MAX_RESPONSE_TIME', None)
+
+    def test_get_response_env_var_timeout_invalid(self):
+        """Test that invalid TV_MAX_RESPONSE_TIME falls back to default"""
+        import os
+
+        os.environ['TV_MAX_RESPONSE_TIME'] = 'invalid'
+
+        try:
+            tv = TvDatafeed()
+            # Should fall back to default (60.0)
+            assert tv.max_response_time == 60.0
+        finally:
+            os.environ.pop('TV_MAX_RESPONSE_TIME', None)
+
+    def test_get_response_env_var_timeout_negative(self):
+        """Test that negative TV_MAX_RESPONSE_TIME falls back to default"""
+        import os
+
+        os.environ['TV_MAX_RESPONSE_TIME'] = '-10.0'
+
+        try:
+            tv = TvDatafeed()
+            # Should fall back to default (60.0)
+            assert tv.max_response_time == 60.0
+        finally:
+            os.environ.pop('TV_MAX_RESPONSE_TIME', None)
+
+    def test_get_response_env_var_timeout_zero(self):
+        """Test that zero TV_MAX_RESPONSE_TIME falls back to default"""
+        import os
+
+        os.environ['TV_MAX_RESPONSE_TIME'] = '0'
+
+        try:
+            tv = TvDatafeed()
+            # Should fall back to default (60.0)
+            assert tv.max_response_time == 60.0
+        finally:
+            os.environ.pop('TV_MAX_RESPONSE_TIME', None)
+
+    def test_get_response_success_before_timeout(self):
+        """Test that normal response works before timeout"""
+        tv = TvDatafeed()
+        tv.max_response_time = 60.0  # Generous timeout
+
+        # Mock WebSocket to return series_completed quickly
+        mock_ws = Mock()
+        mock_ws.recv.side_effect = [
+            '~m~100~m~{"m":"some_message","p":[]}',
+            '~m~100~m~{"m":"timescale_update","p":[]}',
+            '~m~100~m~{"m":"series_completed","p":[]}'
+        ]
+        tv.ws = mock_ws
+
+        # Should not raise any exception
+        raw_data = tv._TvDatafeed__get_response()
+
+        assert 'series_completed' in raw_data
+        assert mock_ws.recv.call_count == 3
+
+    def test_get_response_per_message_timeout_error(self):
+        """Test that per-message timeout raises WebSocketTimeoutError"""
+        from tvDatafeed import WebSocketTimeoutError
+
+        tv = TvDatafeed()
+        tv.max_response_time = 60.0
+
+        # Mock WebSocket to raise TimeoutError on recv
+        mock_ws = Mock()
+        mock_ws.recv.side_effect = TimeoutError("Timed out waiting for data")
+        tv.ws = mock_ws
+
+        with pytest.raises(WebSocketTimeoutError) as exc_info:
+            tv._TvDatafeed__get_response()
+
+        error_msg = str(exc_info.value)
+        assert 'Timeout' in error_msg
+        assert 'ws_timeout' in error_msg
+
+    def test_get_response_generic_error(self):
+        """Test that generic errors during recv raise WebSocketError"""
+        from tvDatafeed import WebSocketError
+
+        tv = TvDatafeed()
+        tv.max_response_time = 60.0
+
+        # Mock WebSocket to raise a generic exception
+        mock_ws = Mock()
+        mock_ws.recv.side_effect = Exception("Network error")
+        tv.ws = mock_ws
+
+        with pytest.raises(WebSocketError) as exc_info:
+            tv._TvDatafeed__get_response()
+
+        error_msg = str(exc_info.value)
+        assert 'Error receiving data' in error_msg
+        assert 'Network error' in error_msg
+
+    def test_get_response_message_count_in_error(self):
+        """Test that error message includes message count"""
+        from tvDatafeed import WebSocketTimeoutError
+
+        tv = TvDatafeed()
+        tv.max_response_time = 0.1  # Very short timeout
+
+        # Mock WebSocket to return multiple messages before timeout
+        mock_ws = Mock()
+        mock_ws.recv.return_value = '~m~100~m~{"m":"some_message","p":[]}'
+        tv.ws = mock_ws
+
+        with pytest.raises(WebSocketTimeoutError) as exc_info:
+            tv._TvDatafeed__get_response()
+
+        error_msg = str(exc_info.value)
+        assert 'messages received' in error_msg
+
+    def test_get_response_default_max_response_time(self):
+        """Test that default max_response_time is 60 seconds"""
+        import os
+
+        # Ensure environment variable is not set
+        os.environ.pop('TV_MAX_RESPONSE_TIME', None)
+
+        tv = TvDatafeed()
+        assert tv.max_response_time == 60.0
+
+    def test_max_response_time_attribute_exists(self):
+        """Test that max_response_time attribute is set on TvDatafeed instance"""
+        tv = TvDatafeed()
+
+        assert hasattr(tv, 'max_response_time')
+        assert isinstance(tv.max_response_time, float)
+        assert tv.max_response_time > 0
+
+    def test_class_default_max_response_time(self):
+        """Test that class-level __max_response_time is defined"""
+        # Access the class attribute through name mangling
+        assert hasattr(TvDatafeed, '_TvDatafeed__max_response_time')
+        assert TvDatafeed._TvDatafeed__max_response_time == 60.0
+
+    def test_class_retry_configuration_exists(self):
+        """Test that class-level retry configuration attributes are defined"""
+        # Access class attributes through name mangling
+        assert hasattr(TvDatafeed, '_TvDatafeed__ws_max_retries')
+        assert hasattr(TvDatafeed, '_TvDatafeed__ws_retry_base_delay')
+        assert hasattr(TvDatafeed, '_TvDatafeed__ws_retry_max_delay')
+
+        assert TvDatafeed._TvDatafeed__ws_max_retries == 3
+        assert TvDatafeed._TvDatafeed__ws_retry_base_delay == 2.0
+        assert TvDatafeed._TvDatafeed__ws_retry_max_delay == 10.0

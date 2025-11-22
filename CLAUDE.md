@@ -268,13 +268,13 @@ Les agents doivent collaborer sur les tâches complexes :
 - [x] ✅ Rendre les timeouts configurables (ws_timeout, TV_WS_TIMEOUT)
 - [x] ✅ Date Range Search (start_date, end_date) - PR #69
 - [x] ✅ Verbose logging control (verbose parameter) - PR #37
-- [ ] 🔴 Ajouter retry avec backoff sur connexion WebSocket (utils.py prêt mais non utilisé)
+- [x] ✅ Ajouter retry avec backoff sur connexion WebSocket
 
-### Phase 2 : Robustesse network (EN COURS)
-- [ ] 🔴 **CRITIQUE** : Retry WebSocket avec `retry_with_backoff()` (déjà implémenté dans utils.py)
-- [ ] 🔴 **CRITIQUE** : Timeout cumulatif dans `__get_response()`
-- [ ] Auto-reconnect WebSocket
-- [ ] Gestion rate limiting TradingView (HTTP 429)
+### Phase 2 : Robustesse network ✅ COMPLÉTÉ (Nov 2025)
+- [x] ✅ **CRITIQUE** : Retry WebSocket avec `retry_with_backoff()` dans `__create_connection()`
+- [x] ✅ **CRITIQUE** : Timeout cumulatif dans `__get_response()` (TV_MAX_RESPONSE_TIME)
+- [ ] Auto-reconnect WebSocket (Phase 3)
+- [ ] Gestion rate limiting TradingView HTTP 429 (Phase 3)
 - [x] ✅ Meilleure gestion des timeouts (configurable via param/env)
 
 ### Phase 3 : Threading bullet-proof
@@ -330,13 +330,20 @@ Les agents doivent collaborer sur les tâches complexes :
 
 ---
 
-**Version** : 1.1
+**Version** : 1.2
 **Dernière mise à jour** : 2025-11-22
-**Statut** : 🟡 Phase 1 complétée, Phase 2 en cours
+**Statut** : ✅ Phase 1 et Phase 2 complétées
 
 ---
 
 ## Historique des mises à jour
+
+### Version 1.2 (2025-11-22)
+- ✅ Phase 2 complétée : Robustesse network
+- ✅ Retry WebSocket avec `retry_with_backoff()` dans `__create_connection()`
+- ✅ Timeout cumulatif dans `__get_response()` avec TV_MAX_RESPONSE_TIME
+- ✅ 20 tests supplémentaires pour Phase 2
+- ✅ Revue architecturale : 8.5/10 - APPROUVÉ
 
 ### Version 1.1 (2025-11-22)
 - ✅ PR #30 mergée : Support 2FA/TOTP complet
@@ -344,4 +351,3 @@ Les agents doivent collaborer sur les tâches complexes :
 - ✅ PR #37 intégrée : Verbose logging control
 - ✅ Revue de sécurité par agent Auth & Sécurité : 8.5/10 - APPROUVÉ
 - ✅ 15+ tests unitaires pour 2FA
-- 📋 Identifié : Manque de retry WebSocket et timeout cumulatif (Phase 2)

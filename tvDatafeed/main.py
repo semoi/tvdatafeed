@@ -10,6 +10,7 @@ import json
 import logging
 import os
 import re
+import time
 from typing import Optional
 import pandas as pd
 from websocket import create_connection
@@ -86,6 +87,16 @@ class TvDatafeed:
     __ws_headers = json.dumps({"Origin": "https://data.tradingview.com"})
     __signin_headers = {'Referer': 'https://www.tradingview.com'}
     __ws_timeout = 5
+
+    # WebSocket connection retry configuration
+    # Used by __create_connection() with retry_with_backoff()
+    __ws_max_retries = 3           # Maximum retry attempts for WebSocket connection
+    __ws_retry_base_delay = 2.0    # Base delay between retries (seconds)
+    __ws_retry_max_delay = 10.0    # Maximum delay between retries (seconds)
+
+    # Maximum time to wait for complete response in __get_response()
+    # Can be overridden via TV_MAX_RESPONSE_TIME environment variable
+    __max_response_time = 60.0     # Default: 60 seconds
 
     def __init__(
         self,
@@ -238,6 +249,33 @@ class TvDatafeed:
         # Priority: parameter > environment variable
         self._totp_secret = totp_secret or os.getenv('TV_TOTP_SECRET')
         self._totp_code = totp_code or os.getenv('TV_2FA_CODE')
+
+        # Configure maximum response time (cumulative timeout for __get_response)
+        # Can be overridden via TV_MAX_RESPONSE_TIME environment variable
+        env_max_response_time = os.getenv('TV_MAX_RESPONSE_TIME')
+        if env_max_response_time:
+            try:
+                self.max_response_time = float(env_max_response_time)
+                if self.max_response_time <= 0:
+                    logger.warning(
+                        f"Invalid TV_MAX_RESPONSE_TIME value: {env_max_response_time}. "
+                        f"Using default: {self.__max_response_time}s"
+                    )
+                    self.max_response_time = self.__max_response_time
+                else:
+                    logger.debug(
+                        f"Using max response time: {self.max_response_time}s "
+                        f"(from TV_MAX_RESPONSE_TIME)"
+                    )
+            except ValueError:
+                logger.warning(
+                    f"Invalid TV_MAX_RESPONSE_TIME value: {env_max_response_time}. "
+                    f"Using default: {self.__max_response_time}s"
+                )
+                self.max_response_time = self.__max_response_time
+        else:
+            self.max_response_time = self.__max_response_time
+            logger.debug(f"Using default max response time: {self.max_response_time}s")
 
         # If auth_token is provided directly, use it
         if auth_token:
@@ -514,41 +552,77 @@ class TvDatafeed:
             )
 
     def __create_connection(self) -> None:
-        """Create WebSocket connection to TradingView
+        """Create WebSocket connection to TradingView with automatic retry
 
         Raises
         ------
         WebSocketError
-            If connection cannot be established
+            If connection cannot be established after all retry attempts
         WebSocketTimeoutError
-            If connection times out
+            If connection times out after all retry attempts
 
         Notes
         -----
         Uses the timeout configured in __init__(). Default is 5 seconds,
         but can be customized via ws_timeout parameter or TV_WS_TIMEOUT environment variable.
-        """
-        try:
-            logger.debug(f"Creating WebSocket connection to TradingView (timeout: {self.ws_timeout}s)")
 
-            self.ws = create_connection(
+        Retry behavior:
+        - Maximum retries: 3 (configurable via __ws_max_retries)
+        - Base delay: 2.0 seconds with exponential backoff
+        - Max delay: 10.0 seconds
+        - Retries on: TimeoutError, ConnectionError, OSError
+        """
+        def _on_retry(attempt: int, exception: Exception) -> None:
+            """Callback for logging retry attempts"""
+            logger.warning(
+                f"WebSocket connection attempt {attempt}/{self.__ws_max_retries} failed: "
+                f"{type(exception).__name__}: {exception}. Retrying..."
+            )
+
+        def _do_connect():
+            """Inner function that performs the actual connection"""
+            logger.debug(
+                f"Creating WebSocket connection to TradingView "
+                f"(timeout: {self.ws_timeout}s)"
+            )
+
+            ws = create_connection(
                 "wss://data.tradingview.com/socket.io/websocket",
                 headers=self.__ws_headers,
                 timeout=self.ws_timeout if self.ws_timeout != -1 else None
             )
 
             logger.debug("WebSocket connection established successfully")
+            return ws
+
+        try:
+            # Use retry_with_backoff for resilient connection
+            self.ws = retry_with_backoff(
+                func=_do_connect,
+                max_retries=self.__ws_max_retries,
+                base_delay=self.__ws_retry_base_delay,
+                max_delay=self.__ws_retry_max_delay,
+                exceptions=(TimeoutError, ConnectionError, OSError),
+                on_retry=_on_retry
+            )
 
         except TimeoutError as e:
-            logger.error(f"WebSocket connection timed out after {self.ws_timeout}s")
+            logger.error(
+                f"WebSocket connection timed out after {self.__ws_max_retries} retries "
+                f"(timeout per attempt: {self.ws_timeout}s)"
+            )
             raise WebSocketTimeoutError(
-                f"Connection to TradingView timed out after {self.ws_timeout} seconds. "
-                f"Try again or increase timeout with ws_timeout parameter or TV_WS_TIMEOUT env variable."
+                f"Connection to TradingView timed out after {self.__ws_max_retries} retry attempts. "
+                f"Each attempt timed out after {self.ws_timeout} seconds. "
+                f"Try again later or increase timeout with ws_timeout parameter or TV_WS_TIMEOUT env variable."
             ) from e
-        except ConnectionError as e:
-            logger.error(f"WebSocket connection error: {e}")
+        except (ConnectionError, OSError) as e:
+            logger.error(
+                f"WebSocket connection failed after {self.__ws_max_retries} retries: {e}"
+            )
             raise WebSocketError(
-                f"Failed to connect to TradingView: {e}"
+                f"Failed to connect to TradingView after {self.__ws_max_retries} retry attempts: {e}. "
+                f"Please check your network connection."
             ) from e
         except Exception as e:
             logger.error(f"Unexpected error creating WebSocket connection: {e}")
@@ -795,7 +869,7 @@ class TvDatafeed:
         Raises
         ------
         WebSocketTimeoutError
-            If timeout occurs while receiving data
+            If timeout occurs while receiving data (per-message or cumulative)
         WebSocketError
             If any other error occurs during data reception
 
@@ -804,29 +878,67 @@ class TvDatafeed:
         This method reads messages from the WebSocket connection until it
         receives a message containing "series_completed", which indicates
         that all historical data has been transmitted.
+
+        Cumulative timeout:
+        - Default: 60 seconds (configurable via TV_MAX_RESPONSE_TIME env var)
+        - Prevents infinite blocking if "series_completed" never arrives
+        - Individual message timeouts are still handled by the WebSocket timeout
         """
         raw_data = ""
+        start_time = time.time()
+        message_count = 0
 
-        logger.debug("Reading WebSocket responses until series_completed")
+        logger.debug(
+            f"Reading WebSocket responses until series_completed "
+            f"(max time: {self.max_response_time}s)"
+        )
 
         while True:
+            # Check cumulative timeout
+            elapsed_time = time.time() - start_time
+            if elapsed_time > self.max_response_time:
+                logger.error(
+                    f"Cumulative timeout exceeded: {elapsed_time:.2f}s > "
+                    f"{self.max_response_time}s after {message_count} messages"
+                )
+                raise WebSocketTimeoutError(
+                    f"Timed out waiting for complete response after {elapsed_time:.1f} seconds "
+                    f"({message_count} messages received). "
+                    f"The 'series_completed' message was not received in time. "
+                    f"Try increasing TV_MAX_RESPONSE_TIME environment variable "
+                    f"(current: {self.max_response_time}s) or check symbol/exchange validity."
+                )
+
             try:
                 result = self.ws.recv()
                 raw_data = raw_data + result + "\n"
+                message_count += 1
             except TimeoutError as e:
-                logger.error("Timeout while receiving WebSocket data")
+                elapsed_time = time.time() - start_time
+                logger.error(
+                    f"Timeout while receiving WebSocket data "
+                    f"(elapsed: {elapsed_time:.2f}s, messages: {message_count})"
+                )
                 raise WebSocketTimeoutError(
-                    f"Timeout while fetching data. "
-                    f"Try again or increase timeout."
+                    f"Timeout while fetching data after {elapsed_time:.1f}s "
+                    f"({message_count} messages received). "
+                    f"Try again or increase timeout with ws_timeout parameter."
                 ) from e
             except Exception as e:
-                logger.error(f"Error receiving WebSocket data: {e}")
+                elapsed_time = time.time() - start_time
+                logger.error(
+                    f"Error receiving WebSocket data after {elapsed_time:.2f}s: {e}"
+                )
                 raise WebSocketError(
                     f"Error receiving data: {type(e).__name__}: {e}"
                 ) from e
 
             if "series_completed" in result:
-                logger.debug("Received series_completed message")
+                elapsed_time = time.time() - start_time
+                logger.debug(
+                    f"Received series_completed message after {elapsed_time:.2f}s "
+                    f"({message_count} messages)"
+                )
                 break
 
         return raw_data

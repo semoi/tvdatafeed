@@ -145,3 +145,94 @@ class TestSeis:
 
         with pytest.raises(NameError, match="not provided"):
             seis.del_seis()
+
+    def test_seis_equality_with_non_seis(self):
+        """Test Seis equality comparison with non-Seis objects"""
+        seis = Seis('BTCUSDT', 'BINANCE', Interval.in_1_hour)
+
+        # Should return False when compared with non-Seis objects
+        assert seis != "BTCUSDT"
+        assert seis != 123
+        assert seis != None
+        assert seis != ['BTCUSDT', 'BINANCE', Interval.in_1_hour]
+        assert seis != {'symbol': 'BTCUSDT'}
+
+    def test_seis_tvdatafeed_deleter(self):
+        """Test deleting tvdatafeed reference"""
+        seis = Seis('BTCUSDT', 'BINANCE', Interval.in_1_hour)
+        mock_tvl = Mock(spec=TvDatafeedLive)
+
+        seis.tvdatafeed = mock_tvl
+        assert seis.tvdatafeed == mock_tvl
+
+        # Delete the reference
+        del seis.tvdatafeed
+        assert seis.tvdatafeed is None
+
+        # Should now be able to set again
+        seis.tvdatafeed = mock_tvl
+        assert seis.tvdatafeed == mock_tvl
+
+    def test_seis_new_consumer_with_tvdatafeed(self):
+        """Test new_consumer when tvdatafeed is set"""
+        seis = Seis('BTCUSDT', 'BINANCE', Interval.in_1_hour)
+        mock_tvl = Mock(spec=TvDatafeedLive)
+        mock_consumer = Mock()
+        mock_tvl.new_consumer.return_value = mock_consumer
+
+        seis.tvdatafeed = mock_tvl
+
+        def callback(s, d):
+            pass
+
+        result = seis.new_consumer(callback)
+
+        mock_tvl.new_consumer.assert_called_once_with(seis, callback, -1)
+        assert result == mock_consumer
+
+    def test_seis_del_consumer_with_tvdatafeed(self):
+        """Test del_consumer when tvdatafeed is set"""
+        seis = Seis('BTCUSDT', 'BINANCE', Interval.in_1_hour)
+        mock_tvl = Mock(spec=TvDatafeedLive)
+        mock_tvl.del_consumer.return_value = True
+        mock_consumer = Mock()
+
+        seis.tvdatafeed = mock_tvl
+
+        result = seis.del_consumer(mock_consumer)
+
+        mock_tvl.del_consumer.assert_called_once_with(mock_consumer, -1)
+        assert result is True
+
+    def test_seis_get_hist_with_tvdatafeed(self):
+        """Test get_hist when tvdatafeed is set"""
+        seis = Seis('BTCUSDT', 'BINANCE', Interval.in_1_hour)
+        mock_tvl = Mock(spec=TvDatafeedLive)
+        mock_df = Mock()
+        mock_tvl.get_hist.return_value = mock_df
+
+        seis.tvdatafeed = mock_tvl
+
+        result = seis.get_hist(n_bars=20)
+
+        mock_tvl.get_hist.assert_called_once_with(
+            symbol='BTCUSDT',
+            exchange='BINANCE',
+            interval=Interval.in_1_hour,
+            n_bars=20,
+            timeout=-1
+        )
+        assert result == mock_df
+
+    def test_seis_del_seis_with_tvdatafeed(self):
+        """Test del_seis when tvdatafeed is set"""
+        seis = Seis('BTCUSDT', 'BINANCE', Interval.in_1_hour)
+        mock_tvl = Mock(spec=TvDatafeedLive)
+        mock_tvl.del_seis.return_value = True
+
+        seis.tvdatafeed = mock_tvl
+
+        result = seis.del_seis()
+
+        mock_tvl.del_seis.assert_called_once_with(seis, -1)
+        assert result is True

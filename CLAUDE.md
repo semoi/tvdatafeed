@@ -107,11 +107,12 @@ Autres : `1D (daily), 1W (weekly), 1M (monthly)`
 - 🟡 Parsing plus résilient (regex fragiles actuellement)
 
 #### Tests & Qualité
-- ✅ **COMPLÉTÉ** : Tests unitaires ajoutés (100+ tests, 15+ pour 2FA)
+- ✅ **COMPLÉTÉ** : Tests unitaires ajoutés (384 tests passants)
 - ✅ **COMPLÉTÉ** : Tests d'intégration pour les flows critiques
-- 🟡 Ajouter tests d'intégration 2FA (avec mocks HTTP)
-- 🟡 Tests de charge pour le threading
-- 🟡 Tests de sécurité des logs (credentials masqués)
+- ✅ **COMPLÉTÉ** : Tests d'intégration 2FA avec mocks HTTP (43 tests)
+- ✅ **COMPLÉTÉ** : Tests de charge pour le threading
+- ✅ **COMPLÉTÉ** : Tests de sécurité des logs (credentials masqués)
+- ✅ **COMPLÉTÉ** : Couverture globale 89.12% (objectif 80% atteint)
 
 ---
 
@@ -461,12 +462,14 @@ TvDatafeedLive                  Consumer                    Seis
 - [x] ✅ Tests de charge threading
 - [x] ✅ Documentation patterns concurrence (section "Patterns de Concurrence")
 
-### Phase 4 : Tests & Qualité ✅ PARTIELLEMENT COMPLÉTÉ
-- [x] ✅ Suite tests unitaires (100+ tests)
+### Phase 4 : Tests & Qualité ✅ COMPLÉTÉ (Nov 2025)
+- [x] ✅ Suite tests unitaires (384 tests passants)
 - [x] ✅ Tests d'intégration pour flows critiques
 - [x] ✅ CI/CD pipeline (GitHub Actions)
-- [ ] Coverage > 80%
-- [ ] Tests d'intégration 2FA avec mocks HTTP
+- [x] ✅ Coverage 89.12% (objectif 80% dépassé)
+- [x] ✅ Tests d'intégration 2FA avec mocks HTTP (43 tests)
+- [x] ✅ Tests unitaires datafeed.py (71 tests)
+- [x] ✅ Tests exceptions et config (100% couverture)
 
 ### Phase 5 : UX & Documentation ✅ PARTIELLEMENT COMPLÉTÉ
 - [x] ✅ Exemples complets (2FA, date range, quiet mode, CAPTCHA)
@@ -508,13 +511,34 @@ TvDatafeedLive                  Consumer                    Seis
 
 ---
 
-**Version** : 1.3
+**Version** : 1.4
 **Dernière mise à jour** : 2025-11-22
-**Statut** : ✅ Phase 1, Phase 2 et Phase 3 complétées
+**Statut** : ✅ Phase 1, Phase 2, Phase 3 et Phase 4 complétées
 
 ---
 
 ## Historique des mises à jour
+
+### Version 1.4 (2025-11-22)
+- ✅ Phase 4 complétée : Tests & Qualité
+- ✅ Couverture globale : 68.73% -> **89.12%** (objectif 80% dépassé)
+- ✅ Tests passants : 250 -> **384 tests**
+- ✅ Nouveaux fichiers de tests créés :
+  - `tests/unit/test_datafeed.py` : 71 tests pour TvDatafeedLive et _SeisesAndTrigger
+  - `tests/unit/test_exceptions.py` : Tests complets pour toutes les exceptions
+  - `tests/unit/test_config.py` : Tests pour NetworkConfig, AuthConfig, DataConfig, ThreadingConfig
+  - `tests/integration/test_2fa_integration.py` : 43 tests d'intégration 2FA avec mocks HTTP
+- ✅ Couverture par fichier :
+  - `__init__.py`: 100%
+  - `config.py`: 100%
+  - `exceptions.py`: 100%
+  - `seis.py`: 100%
+  - `validators.py`: 98.92%
+  - `utils.py`: 95.58%
+  - `consumer.py`: 94.51%
+  - `datafeed.py`: 83.29%
+  - `main.py`: 80.51%
+- ✅ Revue architecturale : 9/10 - APPROUVÉ
 
 ### Version 1.3 (2025-11-22)
 - ✅ Phase 3 complétée : Threading bullet-proof

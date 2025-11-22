@@ -102,7 +102,10 @@ class TestRetryWithBackoff:
         )
 
         assert callback.call_count == 1
-        callback.assert_called_with(1, pytest.any(ValueError))
+        # Verify callback was called with attempt number 1 and a ValueError exception
+        args, kwargs = callback.call_args
+        assert args[0] == 1
+        assert isinstance(args[1], ValueError)
 
     def test_retry_wrong_exception_not_caught(self):
         """Test that wrong exception type is not caught"""
@@ -175,6 +178,9 @@ class TestLogExecutionTime:
 
     def test_log_execution_time_success(self, caplog):
         """Test logging successful execution time"""
+        import logging
+        caplog.set_level(logging.DEBUG)
+
         @log_execution_time
         def test_func():
             time.sleep(0.01)
@@ -207,9 +213,11 @@ class TestMaskSensitiveData:
     def test_mask_normal_string(self):
         """Test masking normal length string"""
         result = mask_sensitive_data("my_secret_token_12345")
-        assert result == "*****************12345"
+        # Default visible_chars=4, so last 4 chars visible
+        # String has 21 chars, so 17 asterisks + last 4 chars ("2345")
+        assert result == "*****************2345"
         assert "secret" not in result
-        assert result.endswith("12345")
+        assert result.endswith("2345")
 
     def test_mask_short_string(self):
         """Test masking very short string"""
@@ -345,6 +353,9 @@ class TestContextTimer:
 
     def test_context_timer_success(self, caplog):
         """Test timing successful operation"""
+        import logging
+        caplog.set_level(logging.DEBUG)
+
         with ContextTimer("Test operation"):
             time.sleep(0.01)
 
@@ -375,6 +386,7 @@ class TestContextTimer:
     def test_context_timer_custom_logger(self, caplog):
         """Test using custom logger instance"""
         import logging
+        caplog.set_level(logging.DEBUG)
         custom_logger = logging.getLogger("custom")
 
         with ContextTimer("Custom logger test", logger_instance=custom_logger):

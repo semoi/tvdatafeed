@@ -307,6 +307,8 @@ TV_PASSWORD=your_password
 TV_CONNECT_TIMEOUT=10.0
 TV_RECV_TIMEOUT=30.0
 TV_MAX_RETRIES=3
+TV_WS_TIMEOUT=5.0              # WebSocket per-message timeout (seconds)
+TV_MAX_RESPONSE_TIME=60.0      # Maximum time to wait for complete response (seconds)
 
 # Debug
 TV_DEBUG=false

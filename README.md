@@ -240,8 +240,40 @@ tv.get_hist(
     fut_contract: int = None,         # Futures contract (1=front, 2=next)
     extended_session: bool = False,   # Include extended hours
     start_date: datetime = None,      # Start date (use with end_date) - NEW in v1.4
-    end_date: datetime = None         # End date (use with start_date) - NEW in v1.4
+    end_date: datetime = None,        # End date (use with start_date) - NEW in v1.4
+    timezone: str = None              # Timezone for datetime index - NEW in v1.5
 ) -> pd.DataFrame
+```
+
+#### Timezone Support (NEW in v1.5)
+
+By default, timestamps are returned in your local system timezone. You can specify a timezone to get consistent datetime values:
+
+```python
+# Get data in UTC (recommended for cross-instrument analysis)
+df = tv.get_hist('BTCUSDT', 'BINANCE', Interval.in_1_hour, n_bars=100, timezone='UTC')
+
+# Get data in US Eastern time
+df = tv.get_hist('AAPL', 'NASDAQ', Interval.in_daily, n_bars=50, timezone='America/New_York')
+
+# Common timezones:
+# - 'UTC': Coordinated Universal Time
+# - 'America/New_York': US Eastern (EST/EDT)
+# - 'America/Chicago': US Central (CST/CDT)
+# - 'Europe/London': UK (GMT/BST)
+# - 'Europe/Paris': Central European (CET/CEST)
+# - 'Asia/Tokyo': Japan Standard Time
+# - 'Asia/Hong_Kong': Hong Kong Time
+```
+
+You can also set the default timezone via environment variable:
+```bash
+export TV_TIMEZONE=UTC
+```
+
+The timezone is stored in DataFrame metadata:
+```python
+print(df.attrs.get('timezone'))  # Output: 'UTC'
 ```
 
 ### Live Data Feed

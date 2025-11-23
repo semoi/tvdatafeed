@@ -11,10 +11,27 @@ import logging
 import os
 import re
 import time
-from typing import Optional
+from typing import Optional, Union
 import pandas as pd
 from websocket import create_connection
 import requests
+
+# Timezone handling: prefer zoneinfo (Python 3.9+), fallback to pytz
+ZONEINFO_AVAILABLE = False
+PYTZ_AVAILABLE = False
+
+try:
+    from zoneinfo import ZoneInfo
+    ZONEINFO_AVAILABLE = True
+except ImportError:
+    pass
+
+if not ZONEINFO_AVAILABLE:
+    try:
+        import pytz
+        PYTZ_AVAILABLE = True
+    except ImportError:
+        pass
 
 from .exceptions import (
     AuthenticationError,
@@ -43,6 +60,57 @@ from .utils import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+def _get_timezone_object(tz_name: str):
+    """
+    Get a timezone object from a timezone name string.
+
+    Parameters
+    ----------
+    tz_name : str
+        Timezone name (e.g., 'UTC', 'America/New_York', 'Europe/Paris')
+
+    Returns
+    -------
+    timezone object
+        A timezone object compatible with datetime.fromtimestamp()
+
+    Raises
+    ------
+    ConfigurationError
+        If the timezone name is invalid or timezone libraries are not available
+    """
+    if tz_name == 'UTC':
+        return datetime.timezone.utc
+
+    if ZONEINFO_AVAILABLE:
+        try:
+            return ZoneInfo(tz_name)
+        except KeyError:
+            raise ConfigurationError(
+                "timezone",
+                tz_name,
+                f"Invalid timezone: '{tz_name}'. Use a valid IANA timezone name "
+                f"(e.g., 'UTC', 'America/New_York', 'Europe/Paris')."
+            )
+    elif PYTZ_AVAILABLE:
+        try:
+            return pytz.timezone(tz_name)
+        except pytz.exceptions.UnknownTimeZoneError:
+            raise ConfigurationError(
+                "timezone",
+                tz_name,
+                f"Invalid timezone: '{tz_name}'. Use a valid IANA timezone name "
+                f"(e.g., 'UTC', 'America/New_York', 'Europe/Paris')."
+            )
+    else:
+        raise ConfigurationError(
+            "timezone",
+            tz_name,
+            "Timezone conversion requires Python 3.9+ (zoneinfo) or pytz library. "
+            "Install pytz with: pip install pytz"
+        )
 
 
 class Interval(enum.Enum):
@@ -663,7 +731,8 @@ class TvDatafeed:
         raw_data: str,
         symbol: str,
         interval_len: Optional[int] = None,
-        time_zone: Optional[str] = None
+        time_zone: Optional[str] = None,
+        tz_object: Optional[datetime.timezone] = None
     ) -> Optional[pd.DataFrame]:
         """
         Create pandas DataFrame from raw WebSocket data
@@ -678,7 +747,11 @@ class TvDatafeed:
             Interval length in seconds (for timezone-aware data)
         time_zone : str, optional
             Timezone name (e.g., 'America/New_York', 'UTC')
-            If provided, adds timezone metadata to the DataFrame
+            Used for DataFrame metadata (df.attrs['timezone'])
+        tz_object : timezone object, optional
+            Timezone object for datetime conversion.
+            If provided, timestamps will be converted to this timezone.
+            If None, timestamps use the local system timezone (backward compatible).
 
         Returns
         -------
@@ -690,6 +763,10 @@ class TvDatafeed:
         The DataFrame includes columns: symbol, datetime (index), open,
         high, low, close, volume. If time_zone is provided, timezone
         information is added to the DataFrame metadata.
+
+        Timezone behavior:
+        - If tz_object is provided: datetimes are timezone-aware in that timezone
+        - If tz_object is None: datetimes are timezone-naive in local time (default)
         """
         try:
             out = re.search(r'"s":\[(.+?)\}\]', raw_data).group(1)
@@ -699,7 +776,16 @@ class TvDatafeed:
 
             for xi in x:
                 xi = re.split(r"\[|:|,|\]", xi)
-                ts = datetime.datetime.fromtimestamp(float(xi[4]))
+                # Convert Unix timestamp to datetime
+                # TradingView sends timestamps as Unix epoch (seconds)
+                unix_ts = float(xi[4])
+
+                if tz_object is not None:
+                    # Timezone-aware datetime in specified timezone
+                    ts = datetime.datetime.fromtimestamp(unix_ts, tz=tz_object)
+                else:
+                    # Timezone-naive datetime in local time (backward compatible)
+                    ts = datetime.datetime.fromtimestamp(unix_ts)
 
                 row = [ts]
 
@@ -953,6 +1039,7 @@ class TvDatafeed:
         extended_session: bool = False,
         start_date: Optional[datetime.datetime] = None,
         end_date: Optional[datetime.datetime] = None,
+        timezone: Optional[str] = None,
     ) -> Optional[pd.DataFrame]:
         """Get historical OHLCV data from TradingView
 
@@ -979,12 +1066,26 @@ class TvDatafeed:
         end_date : datetime, optional
             End date for historical data query. Mutually exclusive with n_bars.
             Must be used together with start_date. Can be timezone-aware or naive.
+        timezone : str, optional
+            Timezone for the datetime index in the returned DataFrame.
+            Use IANA timezone names (e.g., 'UTC', 'America/New_York', 'Europe/Paris').
+            Can also be set via TV_TIMEZONE environment variable.
+            Priority: parameter > environment variable > None (local system timezone).
+            If None, timestamps are in local system timezone (backward compatible).
+            Common values:
+            - 'UTC': Coordinated Universal Time
+            - 'America/New_York': US Eastern Time (EST/EDT)
+            - 'Europe/London': UK time (GMT/BST)
+            - 'Asia/Tokyo': Japan Standard Time
 
         Returns
         -------
         pd.DataFrame or None
             DataFrame with columns: symbol, datetime (index), open, high, low, close, volume
-            If start_date/end_date used, DataFrame includes timezone metadata in df.attrs.
+            The datetime index timezone depends on the `timezone` parameter:
+            - If timezone is specified: datetime index is timezone-aware in that timezone
+            - If timezone is None: datetime index is timezone-naive in local time
+            Timezone metadata is stored in df.attrs['timezone'].
             Returns None if no data is available.
 
         Raises
@@ -995,6 +1096,8 @@ class TvDatafeed:
             If only one of start_date/end_date is provided
         InvalidIntervalError
             If interval is not supported
+        ConfigurationError
+            If timezone name is invalid or timezone library not available
         WebSocketError
             If WebSocket connection fails
         DataNotFoundError
@@ -1002,31 +1105,53 @@ class TvDatafeed:
 
         Examples
         --------
-        >>> # Using n_bars (traditional method)
+        >>> # Using n_bars (traditional method) - local timezone (default)
         >>> tv = TvDatafeed()
         >>> df = tv.get_hist('BTCUSDT', 'BINANCE', Interval.in_1_hour, n_bars=100)
         >>> print(df.head())
         >>>
-        >>> # Using date range (new method)
+        >>> # Get data in UTC timezone
+        >>> df = tv.get_hist('BTCUSDT', 'BINANCE', Interval.in_1_hour, n_bars=100, timezone='UTC')
+        >>> print(df.head())  # Datetime index is now in UTC
+        >>> print(f"Timezone: {df.attrs.get('timezone')}")  # Output: UTC
+        >>>
+        >>> # Get data in US Eastern timezone
+        >>> df = tv.get_hist('AAPL', 'NASDAQ', Interval.in_daily, n_bars=50,
+        ...                  timezone='America/New_York')
+        >>> print(df.head())  # Datetime index is in EST/EDT
+        >>>
+        >>> # Using date range with timezone
         >>> from datetime import datetime
         >>> df = tv.get_hist(
         ...     'BTCUSDT', 'BINANCE', Interval.in_1_hour,
         ...     start_date=datetime(2024, 1, 1),
-        ...     end_date=datetime(2024, 1, 31)
+        ...     end_date=datetime(2024, 1, 31),
+        ...     timezone='UTC'
         ... )
         >>> print(df.head())
-        >>> print(f"Timezone: {df.attrs.get('timezone', 'Not set')}")
 
         Notes
         -----
         - n_bars and date range (start_date/end_date) are mutually exclusive
         - Date range validation: start < end, no future dates, after 2000-01-01
         - TradingView API applies a -30min adjustment to timestamps internally
-        - Timezone information is preserved in df.attrs when using date ranges
+        - Timezone can be set via TV_TIMEZONE environment variable
+        - Requires Python 3.9+ (zoneinfo) or pytz for non-UTC timezones
         """
         # Validate inputs
         symbol = Validators.validate_symbol(symbol, allow_formatted=True)
         exchange = Validators.validate_exchange(exchange)
+
+        # Resolve timezone: parameter > environment variable > None (local)
+        tz_name = timezone
+        if tz_name is None:
+            tz_name = os.getenv('TV_TIMEZONE')
+
+        # Get timezone object if specified
+        tz_object = None
+        if tz_name:
+            tz_object = _get_timezone_object(tz_name)
+            logger.debug(f"Using timezone: {tz_name}")
 
         # Validate interval
         if not isinstance(interval, Interval):
@@ -1187,11 +1312,14 @@ class TvDatafeed:
         # Get interval length for timezone metadata
         interval_seconds = interval_len.get(interval)
 
-        # Create DataFrame with timezone metadata if using date range
-        if using_date_range:
-            df = self.__create_df(raw_data, symbol, interval_seconds, "exchange")
-        else:
-            df = self.__create_df(raw_data, symbol)
+        # Create DataFrame with timezone conversion and metadata
+        df = self.__create_df(
+            raw_data=raw_data,
+            symbol=symbol,
+            interval_len=interval_seconds,
+            time_zone=tz_name,
+            tz_object=tz_object
+        )
 
         if df is None:
             logger.warning(f"No data returned for {symbol} on {exchange}")

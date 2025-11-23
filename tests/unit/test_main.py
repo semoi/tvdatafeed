@@ -1306,3 +1306,237 @@ class TestWebSocketRetryAndTimeout:
         assert TvDatafeed._TvDatafeed__ws_max_retries == 3
         assert TvDatafeed._TvDatafeed__ws_retry_base_delay == 2.0
         assert TvDatafeed._TvDatafeed__ws_retry_max_delay == 10.0
+
+
+@pytest.mark.unit
+class TestTimezoneFeature:
+    """Tests for timezone parameter in get_hist()"""
+
+    def test_get_timezone_object_utc(self):
+        """Test that UTC timezone returns datetime.timezone.utc"""
+        from tvDatafeed.main import _get_timezone_object
+        import datetime
+
+        tz = _get_timezone_object('UTC')
+
+        assert tz == datetime.timezone.utc
+
+    def test_get_timezone_object_america_new_york(self):
+        """Test that America/New_York timezone is valid"""
+        from tvDatafeed.main import _get_timezone_object
+
+        tz = _get_timezone_object('America/New_York')
+
+        assert tz is not None
+        assert str(tz) in ['America/New_York', 'EST', 'EDT', 'US/Eastern']
+
+    def test_get_timezone_object_europe_paris(self):
+        """Test that Europe/Paris timezone is valid"""
+        from tvDatafeed.main import _get_timezone_object
+
+        tz = _get_timezone_object('Europe/Paris')
+
+        assert tz is not None
+
+    def test_get_timezone_object_invalid_raises_error(self):
+        """Test that invalid timezone raises ConfigurationError"""
+        from tvDatafeed.main import _get_timezone_object
+        from tvDatafeed.exceptions import ConfigurationError
+
+        with pytest.raises(ConfigurationError) as exc_info:
+            _get_timezone_object('Invalid/Timezone')
+
+        assert 'Invalid timezone' in str(exc_info.value)
+
+    def test_create_df_with_utc_timezone(self):
+        """Test __create_df converts timestamps to UTC"""
+        import datetime
+
+        tv = TvDatafeed()
+        raw_data = '''{"s":[{"v":[1704067200.0,100.0,105.0,99.0,102.0,1000.0]}]}'''
+
+        # Call __create_df with UTC timezone object
+        df = tv._TvDatafeed__create_df(
+            raw_data,
+            'TEST',
+            time_zone='UTC',
+            tz_object=datetime.timezone.utc
+        )
+
+        assert df is not None
+        assert 'timezone' in df.attrs
+        assert df.attrs['timezone'] == 'UTC'
+        # Check that datetime is timezone-aware
+        assert df.index[0].tzinfo is not None
+
+    def test_create_df_without_timezone_backward_compatible(self):
+        """Test __create_df without timezone (backward compatibility)"""
+        tv = TvDatafeed()
+        raw_data = '''{"s":[{"v":[1704067200.0,100.0,105.0,99.0,102.0,1000.0]}]}'''
+
+        # Call __create_df without timezone (should use local time)
+        df = tv._TvDatafeed__create_df(raw_data, 'TEST')
+
+        assert df is not None
+        # Should not have timezone attribute or it should be None
+        assert 'timezone' not in df.attrs or df.attrs.get('timezone') is None
+        # Check that datetime is timezone-naive (local time)
+        assert df.index[0].tzinfo is None
+
+    def test_get_hist_timezone_parameter_accepted(self):
+        """Test that get_hist accepts timezone parameter"""
+        import inspect
+
+        sig = inspect.signature(TvDatafeed.get_hist)
+        params = list(sig.parameters.keys())
+
+        assert 'timezone' in params
+
+    def test_get_hist_timezone_from_env_variable(self, monkeypatch):
+        """Test that TV_TIMEZONE environment variable is used"""
+        monkeypatch.setenv('TV_TIMEZONE', 'UTC')
+
+        tv = TvDatafeed()
+
+        # Create a mock WebSocket and test the timezone resolution
+        with patch.object(tv, '_TvDatafeed__create_connection'):
+            with patch.object(tv, '_TvDatafeed__send_message'):
+                with patch.object(tv, '_TvDatafeed__get_response') as mock_response:
+                    mock_response.return_value = '''{"s":[{"v":[1704067200.0,100.0,105.0,99.0,102.0,1000.0]}]}'''
+                    with patch.object(tv, 'ws') as mock_ws:
+                        mock_ws.close = Mock()
+
+                        df = tv.get_hist('BTCUSDT', 'BINANCE', Interval.in_daily, n_bars=1)
+
+                        # Should use UTC from environment
+                        assert 'timezone' in df.attrs
+                        assert df.attrs['timezone'] == 'UTC'
+                        assert df.index[0].tzinfo is not None
+
+    def test_get_hist_timezone_parameter_overrides_env(self, monkeypatch):
+        """Test that timezone parameter takes priority over TV_TIMEZONE"""
+        monkeypatch.setenv('TV_TIMEZONE', 'Europe/London')
+
+        tv = TvDatafeed()
+
+        with patch.object(tv, '_TvDatafeed__create_connection'):
+            with patch.object(tv, '_TvDatafeed__send_message'):
+                with patch.object(tv, '_TvDatafeed__get_response') as mock_response:
+                    mock_response.return_value = '''{"s":[{"v":[1704067200.0,100.0,105.0,99.0,102.0,1000.0]}]}'''
+                    with patch.object(tv, 'ws') as mock_ws:
+                        mock_ws.close = Mock()
+
+                        # Explicitly pass UTC - should override env var
+                        df = tv.get_hist('BTCUSDT', 'BINANCE', Interval.in_daily,
+                                       n_bars=1, timezone='UTC')
+
+                        assert df.attrs['timezone'] == 'UTC'
+
+    def test_get_hist_no_timezone_uses_local(self, monkeypatch):
+        """Test that no timezone uses local system time (backward compatible)"""
+        # Ensure env var is not set
+        monkeypatch.delenv('TV_TIMEZONE', raising=False)
+
+        tv = TvDatafeed()
+
+        with patch.object(tv, '_TvDatafeed__create_connection'):
+            with patch.object(tv, '_TvDatafeed__send_message'):
+                with patch.object(tv, '_TvDatafeed__get_response') as mock_response:
+                    mock_response.return_value = '''{"s":[{"v":[1704067200.0,100.0,105.0,99.0,102.0,1000.0]}]}'''
+                    with patch.object(tv, 'ws') as mock_ws:
+                        mock_ws.close = Mock()
+
+                        df = tv.get_hist('BTCUSDT', 'BINANCE', Interval.in_daily, n_bars=1)
+
+                        # Should not have timezone (backward compatible)
+                        assert df.attrs.get('timezone') is None
+                        assert df.index[0].tzinfo is None
+
+    def test_get_hist_invalid_timezone_raises_error(self, monkeypatch):
+        """Test that invalid timezone raises ConfigurationError"""
+        from tvDatafeed.exceptions import ConfigurationError
+
+        monkeypatch.delenv('TV_TIMEZONE', raising=False)
+        tv = TvDatafeed()
+
+        with pytest.raises(ConfigurationError) as exc_info:
+            tv.get_hist('BTCUSDT', 'BINANCE', Interval.in_daily,
+                       n_bars=1, timezone='Invalid/Timezone')
+
+        assert 'Invalid timezone' in str(exc_info.value)
+
+    def test_timezone_converts_timestamp_correctly_utc(self):
+        """Test that UTC timezone converts timestamps correctly"""
+        import datetime
+
+        tv = TvDatafeed()
+        # Unix timestamp 1704067200 = 2024-01-01 00:00:00 UTC
+        # Raw data format must match the regex in __create_df
+        raw_data = '"s":[{"i":0,"v":[1704067200.0,100.0,105.0,99.0,102.0,1000.0]}]}'
+
+        df = tv._TvDatafeed__create_df(
+            raw_data,
+            'TEST',
+            time_zone='UTC',
+            tz_object=datetime.timezone.utc
+        )
+
+        # In UTC, this should be 2024-01-01 00:00:00
+        expected_dt = datetime.datetime(2024, 1, 1, 0, 0, 0, tzinfo=datetime.timezone.utc)
+        assert df.index[0] == expected_dt
+
+    def test_timezone_converts_timestamp_correctly_est(self):
+        """Test that America/New_York timezone converts timestamps correctly"""
+        from tvDatafeed.main import _get_timezone_object
+        import datetime
+
+        tv = TvDatafeed()
+        # Unix timestamp 1704067200 = 2024-01-01 00:00:00 UTC = 2023-12-31 19:00:00 EST
+        raw_data = '"s":[{"i":0,"v":[1704067200.0,100.0,105.0,99.0,102.0,1000.0]}]}'
+
+        tz = _get_timezone_object('America/New_York')
+        df = tv._TvDatafeed__create_df(
+            raw_data,
+            'TEST',
+            time_zone='America/New_York',
+            tz_object=tz
+        )
+
+        # In EST (UTC-5), this should be 2023-12-31 19:00:00
+        assert df.index[0].year == 2023
+        assert df.index[0].month == 12
+        assert df.index[0].day == 31
+        assert df.index[0].hour == 19
+        assert df.index[0].minute == 0
+
+    def test_common_timezones_are_valid(self):
+        """Test that common trading timezones are valid"""
+        from tvDatafeed.main import _get_timezone_object
+
+        common_timezones = [
+            'UTC',
+            'America/New_York',
+            'America/Chicago',
+            'America/Los_Angeles',
+            'Europe/London',
+            'Europe/Paris',
+            'Europe/Berlin',  # Frankfurt uses Berlin timezone
+            'Asia/Tokyo',
+            'Asia/Hong_Kong',
+            'Asia/Singapore',
+            'Asia/Shanghai',
+            'Australia/Sydney'
+        ]
+
+        for tz_name in common_timezones:
+            tz = _get_timezone_object(tz_name)
+            assert tz is not None, f"Timezone {tz_name} should be valid"
+
+    def test_docstring_includes_timezone_examples(self):
+        """Test that get_hist docstring includes timezone examples"""
+        docstring = TvDatafeed.get_hist.__doc__
+
+        assert 'timezone' in docstring.lower()
+        assert 'UTC' in docstring
+        assert 'America/New_York' in docstring
+        assert 'TV_TIMEZONE' in docstring

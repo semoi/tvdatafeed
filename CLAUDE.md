@@ -669,6 +669,25 @@ Résultats avec JWT token (Pro Premium) :
 - 📝 Clés reCAPTCHA TradingView identifiées
 - 📝 Différence documentée entre `sessionid` (cookie) et `auth_token` (JWT)
 
+### Version 1.7 (2025-11-23)
+- ✅ **Issue #72 - Timezone Support** :
+  - Nouveau paramètre `timezone` dans `get_hist()` pour spécifier le fuseau horaire des données
+  - Supporte tous les timezones IANA (UTC, America/New_York, Europe/Paris, Asia/Tokyo, etc.)
+  - Variable d'environnement `TV_TIMEZONE` pour définir le timezone par défaut
+  - Priorité : paramètre > variable d'environnement > timezone local du système
+  - Rétrocompatibilité totale : sans paramètre timezone, comportement identique à avant
+- ✅ **Implémentation technique** :
+  - Fonction `_get_timezone_object()` pour résoudre les noms de timezone
+  - Support `zoneinfo` (Python 3.9+) avec fallback vers `pytz`
+  - Modification de `__create_df()` pour la conversion des timestamps
+  - Stockage du timezone dans `df.attrs['timezone']`
+- ✅ **Tests ajoutés** :
+  - 15 nouveaux tests unitaires dans `TestTimezoneFeature`
+  - Tests de conversion UTC et EST
+  - Tests de validation des timezones courants
+  - Tests de priorité paramètre/env var
+- 📝 Documentation README.md mise à jour avec exemples d'utilisation
+
 ### Version 1.6 (2025-11-23)
 - ✅ **Scripts d'automatisation token** créés :
   - `scripts/get_auth_token.py` : Extraction JWT via Playwright + stealth mode

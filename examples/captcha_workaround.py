@@ -28,6 +28,27 @@ logging.basicConfig(
 )
 
 
+def load_env():
+    """Load environment variables from .env file"""
+    env_file = project_root / '.env'
+    if env_file.exists():
+        with open(env_file, encoding='utf-8') as f:
+            for line in f:
+                line = line.strip()
+                if line and not line.startswith('#') and '=' in line:
+                    key, value = line.split('=', 1)
+                    # Remove quotes if present
+                    value = value.strip().strip('"').strip("'")
+                    os.environ.setdefault(key, value)
+        print(f"[INFO] Loaded environment from {env_file}")
+    else:
+        print(f"[WARN] No .env file found at {env_file}")
+
+
+# Load environment variables at startup
+load_env()
+
+
 def method_1_handle_captcha_error():
     """
     Method 1: Handle CaptchaRequiredError and follow instructions

@@ -10,8 +10,16 @@ CaptchaRequiredError with detailed instructions on how to proceed.
 """
 
 import os
+import sys
 import logging
-from tvDatafeed import TvDatafeed, Interval, CaptchaRequiredError
+from pathlib import Path
+
+# Add project root to path for direct execution
+project_root = Path(__file__).parent.parent
+sys.path.insert(0, str(project_root))
+
+from tvDatafeed import TvDatafeed, Interval
+from tvDatafeed.exceptions import CaptchaRequiredError, AuthenticationError
 
 # Enable logging to see detailed information
 logging.basicConfig(
@@ -38,15 +46,24 @@ def method_1_handle_captcha_error():
         )
 
         # If we reach here, authentication succeeded
-        print("✓ Authentication successful!")
+        print("[OK] Authentication successful!")
 
     except CaptchaRequiredError as e:
-        print("✗ CAPTCHA Required!")
+        print("[FAIL] CAPTCHA Required!")
         print("\nThe error message contains detailed instructions:\n")
         print(str(e))
         print("\n" + "-"*70)
         print("Follow the instructions above to extract your auth_token.")
         print("-"*70 + "\n")
+
+    except AuthenticationError as e:
+        error_msg = str(e)
+        if "rate_limit" in error_msg.lower() or "locked out" in error_msg.lower():
+            print("[FAIL] reCAPTCHA blocked login (shown as 'rate_limit')!")
+            print("\nThis is NOT a real rate limit - it's TradingView's invisible reCAPTCHA.")
+            print("Solution: Extract JWT token from browser. See Method 2.")
+        else:
+            print(f"[FAIL] Authentication error: {e}")
 
 
 def method_2_use_token_directly():
@@ -66,7 +83,7 @@ def method_2_use_token_directly():
     # auth_token = "your_token_here"
 
     if not auth_token:
-        print("✗ No auth token found!")
+        print("[FAIL] No auth token found!")
         print("\nPlease set the TV_AUTH_TOKEN environment variable:")
         print("  export TV_AUTH_TOKEN='your_token_here'")
         print("\nOr extract it from your browser following these steps:\n")
@@ -76,7 +93,7 @@ def method_2_use_token_directly():
     try:
         # Initialize with the token
         tv = TvDatafeed(auth_token=auth_token)
-        print("✓ Successfully initialized with auth_token!")
+        print("[OK] Successfully initialized with auth_token!")
 
         # Test the connection by fetching some data
         print("\nTesting connection by fetching BTC data...")
@@ -87,12 +104,12 @@ def method_2_use_token_directly():
             n_bars=10
         )
 
-        print(f"✓ Successfully fetched {len(df)} bars of data!")
+        print(f"[OK] Successfully fetched {len(df)} bars of data!")
         print("\nLatest data:")
         print(df.tail(3))
 
     except Exception as e:
-        print(f"✗ Error: {e}")
+        print(f"[FAIL] Error: {e}")
         print("\nYour token might be expired. Please extract a new one.")
 
 
@@ -159,6 +176,7 @@ def method_3_complete_workflow():
     username = os.getenv('TV_USERNAME')
     password = os.getenv('TV_PASSWORD')
     auth_token = os.getenv('TV_AUTH_TOKEN')
+    totp_secret = os.getenv('TV_TOTP_SECRET')
 
     tv = None
 
@@ -166,34 +184,55 @@ def method_3_complete_workflow():
         if auth_token:
             # Prefer token if available
             print("Using pre-obtained auth token...")
-            tv = TvDatafeed(auth_token=auth_token)
+            tv = TvDatafeed(auth_token=auth_token, verbose=True)
 
         elif username and password:
-            # Fall back to username/password
-            print("Attempting authentication with username/password...")
-            tv = TvDatafeed(username=username, password=password)
+            if totp_secret:
+                # Use TOTP for 2FA
+                print("Using username/password with TOTP 2FA...")
+                tv = TvDatafeed(
+                    username=username,
+                    password=password,
+                    totp_secret=totp_secret,
+                    verbose=True
+                )
+            else:
+                # Fall back to username/password
+                print("Attempting authentication with username/password...")
+                tv = TvDatafeed(username=username, password=password, verbose=True)
 
         else:
             # Use unauthenticated access
             print("No credentials provided, using unauthenticated access...")
-            tv = TvDatafeed()
+            tv = TvDatafeed(verbose=True)
 
-        print("✓ Initialization successful!\n")
+        print("[OK] Initialization successful!\n")
 
         # Fetch some data to test
         print("Fetching Bitcoin data...")
         df = tv.get_hist('BTCUSDT', 'BINANCE', Interval.in_1_hour, n_bars=5)
 
-        print(f"✓ Retrieved {len(df)} bars")
+        print(f"[OK] Retrieved {len(df)} bars")
         print("\nLatest close price:", df.iloc[-1]['close'])
 
     except CaptchaRequiredError as e:
-        print("✗ CAPTCHA verification required!\n")
+        print("[FAIL] CAPTCHA verification required!\n")
         print("Follow these steps to continue:\n")
         print_extraction_instructions()
 
+    except AuthenticationError as e:
+        error_msg = str(e)
+        if "rate_limit" in error_msg.lower() or "locked out" in error_msg.lower():
+            print("[FAIL] reCAPTCHA blocked login (shown as 'rate_limit')!")
+            print("\nThis is TradingView's invisible reCAPTCHA, not a real rate limit.")
+            print("Solution: Use auth_token instead of username/password.")
+            print("\nExtract token with: python scripts/get_auth_token.py")
+            print("Or manually from browser console: window.user.auth_token")
+        else:
+            print(f"[FAIL] Authentication error: {e}")
+
     except Exception as e:
-        print(f"✗ Unexpected error: {type(e).__name__}: {e}")
+        print(f"[FAIL] Unexpected error: {type(e).__name__}: {e}")
 
 
 def main():
@@ -201,14 +240,14 @@ def main():
     Main function to run all examples
     """
     print("""
-╔══════════════════════════════════════════════════════════════════════╗
-║                                                                      ║
-║              TvDatafeed CAPTCHA Workaround Examples                  ║
-║                                                                      ║
-║  This script demonstrates how to handle TradingView's CAPTCHA       ║
-║  requirement by manually extracting the authentication token.       ║
-║                                                                      ║
-╚══════════════════════════════════════════════════════════════════════╝
+========================================================================
+
+              TvDatafeed CAPTCHA Workaround Examples
+
+  This script demonstrates how to handle TradingView's CAPTCHA
+  requirement by manually extracting the authentication token.
+
+========================================================================
 """)
 
     # Run Method 1: Show what happens with CAPTCHA error

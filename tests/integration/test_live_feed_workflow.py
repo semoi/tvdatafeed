@@ -19,7 +19,7 @@ class TestLiveFeedBasics:
     @pytest.fixture
     def mock_live_tv(self):
         """Create a mocked TvDatafeedLive instance"""
-        with patch('tvDatafeed.main.ws.create_connection') as mock_ws:
+        with patch('tvDatafeed.main.create_connection') as mock_ws:
             mock_connection = MagicMock()
             mock_ws.return_value = mock_connection
             mock_connection.recv.side_effect = [
@@ -99,7 +99,7 @@ class TestMultipleSymbols:
     @pytest.fixture
     def mock_live_tv_multi(self):
         """Create a mocked TvDatafeedLive for multiple symbols"""
-        with patch('tvDatafeed.main.ws.create_connection') as mock_ws:
+        with patch('tvDatafeed.main.create_connection') as mock_ws:
             mock_connection = MagicMock()
             mock_ws.return_value = mock_connection
 
@@ -193,7 +193,7 @@ class TestCallbackExecution:
     @pytest.fixture
     def mock_live_tv_callback(self):
         """Create a mocked TvDatafeedLive for callback testing"""
-        with patch('tvDatafeed.main.ws.create_connection') as mock_ws:
+        with patch('tvDatafeed.main.create_connection') as mock_ws:
             mock_connection = MagicMock()
             mock_ws.return_value = mock_connection
             mock_connection.recv.side_effect = [
@@ -267,7 +267,7 @@ class TestThreadSafety:
     @pytest.fixture
     def mock_live_tv_threads(self):
         """Create a mocked TvDatafeedLive for thread safety testing"""
-        with patch('tvDatafeed.main.ws.create_connection') as mock_ws:
+        with patch('tvDatafeed.main.create_connection') as mock_ws:
             mock_connection = MagicMock()
             mock_ws.return_value = mock_connection
             mock_connection.recv.side_effect = [
@@ -352,7 +352,7 @@ class TestLiveFeedResilience:
 
     def test_websocket_reconnection(self):
         """Test handling of WebSocket disconnection and reconnection"""
-        with patch('tvDatafeed.main.ws.create_connection') as mock_ws:
+        with patch('tvDatafeed.main.create_connection') as mock_ws:
             mock_connection = MagicMock()
             call_count = [0]
 
@@ -387,7 +387,7 @@ class TestLiveFeedResilience:
 
     def test_data_parsing_errors(self):
         """Test handling of malformed data"""
-        with patch('tvDatafeed.main.ws.create_connection') as mock_ws:
+        with patch('tvDatafeed.main.create_connection') as mock_ws:
             mock_connection = MagicMock()
             mock_ws.return_value = mock_connection
 

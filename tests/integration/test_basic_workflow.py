@@ -20,7 +20,7 @@ class TestBasicWorkflow:
     @pytest.fixture
     def mock_tv(self):
         """Create a mocked TvDatafeed instance"""
-        with patch('tvDatafeed.main.ws.create_connection') as mock_ws:
+        with patch('tvDatafeed.main.create_connection') as mock_ws:
             # Mock WebSocket connection
             mock_connection = MagicMock()
             mock_ws.return_value = mock_connection
@@ -94,7 +94,7 @@ class TestDataValidation:
     @pytest.fixture
     def mock_tv_with_data(self):
         """Create a mocked TvDatafeed that returns valid data"""
-        with patch('tvDatafeed.main.ws.create_connection') as mock_ws:
+        with patch('tvDatafeed.main.create_connection') as mock_ws:
             mock_connection = MagicMock()
             mock_ws.return_value = mock_connection
 
@@ -158,7 +158,7 @@ class TestErrorHandling:
 
     def test_invalid_symbol_handling(self):
         """Test handling of invalid symbol"""
-        with patch('tvDatafeed.main.ws.create_connection') as mock_ws:
+        with patch('tvDatafeed.main.create_connection') as mock_ws:
             mock_connection = MagicMock()
             mock_ws.return_value = mock_connection
             mock_connection.recv.return_value = '~m~52~m~{"m":"qsd","p":["qs_test123",{"n":"symbol_1","s":"error"}]}'
@@ -178,7 +178,7 @@ class TestErrorHandling:
 
     def test_connection_timeout_handling(self):
         """Test handling of connection timeout"""
-        with patch('tvDatafeed.main.ws.create_connection') as mock_ws:
+        with patch('tvDatafeed.main.create_connection') as mock_ws:
             # Simulate timeout
             mock_ws.side_effect = TimeoutError("Connection timeout")
 
@@ -192,7 +192,7 @@ class TestErrorHandling:
 
     def test_websocket_disconnection_handling(self):
         """Test handling of WebSocket disconnection"""
-        with patch('tvDatafeed.main.ws.create_connection') as mock_ws:
+        with patch('tvDatafeed.main.create_connection') as mock_ws:
             mock_connection = MagicMock()
             mock_ws.return_value = mock_connection
 
@@ -224,7 +224,7 @@ class TestLargeDatasets:
     @pytest.fixture
     def mock_tv_large_data(self):
         """Create a mocked TvDatafeed with large dataset"""
-        with patch('tvDatafeed.main.ws.create_connection') as mock_ws:
+        with patch('tvDatafeed.main.create_connection') as mock_ws:
             mock_connection = MagicMock()
             mock_ws.return_value = mock_connection
 
@@ -284,7 +284,7 @@ class TestSymbolSearch:
     @pytest.fixture
     def mock_tv_search(self):
         """Create a mocked TvDatafeed for search testing"""
-        with patch('tvDatafeed.main.ws.create_connection') as mock_ws, \
+        with patch('tvDatafeed.main.create_connection') as mock_ws, \
              patch('tvDatafeed.main.requests.get') as mock_get:
 
             mock_connection = MagicMock()

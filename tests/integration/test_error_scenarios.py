@@ -23,7 +23,7 @@ class TestAuthenticationErrors:
 
     def test_invalid_credentials(self):
         """Test handling of invalid credentials"""
-        with patch('tvDatafeed.main.ws.create_connection') as mock_ws, \
+        with patch('tvDatafeed.main.create_connection') as mock_ws, \
              patch('tvDatafeed.main.requests.post') as mock_post:
 
             # Mock authentication failure
@@ -48,7 +48,7 @@ class TestAuthenticationErrors:
 
     def test_partial_credentials(self):
         """Test handling of partial credentials"""
-        with patch('tvDatafeed.main.ws.create_connection'):
+        with patch('tvDatafeed.main.create_connection'):
             # Username without password should fail validation
             with pytest.raises((ValueError, AuthenticationError)):
                 TvDatafeed(username='user', password=None)
@@ -60,7 +60,7 @@ class TestWebSocketErrors:
 
     def test_connection_refused(self):
         """Test handling of connection refused"""
-        with patch('tvDatafeed.main.ws.create_connection') as mock_ws:
+        with patch('tvDatafeed.main.create_connection') as mock_ws:
             mock_ws.side_effect = ConnectionRefusedError("Connection refused")
 
             # Should handle connection error gracefully
@@ -69,7 +69,7 @@ class TestWebSocketErrors:
 
     def test_connection_timeout(self):
         """Test handling of connection timeout"""
-        with patch('tvDatafeed.main.ws.create_connection') as mock_ws:
+        with patch('tvDatafeed.main.create_connection') as mock_ws:
             mock_ws.side_effect = TimeoutError("Connection timeout")
 
             # Should handle timeout gracefully
@@ -78,7 +78,7 @@ class TestWebSocketErrors:
 
     def test_websocket_closed_unexpectedly(self):
         """Test handling of unexpected WebSocket closure"""
-        with patch('tvDatafeed.main.ws.create_connection') as mock_ws:
+        with patch('tvDatafeed.main.create_connection') as mock_ws:
             mock_connection = MagicMock()
             mock_ws.return_value = mock_connection
 
@@ -108,7 +108,7 @@ class TestDataErrors:
 
     def test_invalid_symbol(self):
         """Test handling of invalid symbol"""
-        with patch('tvDatafeed.main.ws.create_connection') as mock_ws:
+        with patch('tvDatafeed.main.create_connection') as mock_ws:
             mock_connection = MagicMock()
             mock_ws.return_value = mock_connection
             mock_connection.recv.side_effect = [
@@ -129,7 +129,7 @@ class TestDataErrors:
 
     def test_no_data_available(self):
         """Test handling when no data is available"""
-        with patch('tvDatafeed.main.ws.create_connection') as mock_ws:
+        with patch('tvDatafeed.main.create_connection') as mock_ws:
             mock_connection = MagicMock()
             mock_ws.return_value = mock_connection
             mock_connection.recv.side_effect = [
@@ -151,7 +151,7 @@ class TestDataErrors:
 
     def test_malformed_data(self):
         """Test handling of malformed data"""
-        with patch('tvDatafeed.main.ws.create_connection') as mock_ws:
+        with patch('tvDatafeed.main.create_connection') as mock_ws:
             mock_connection = MagicMock()
             mock_ws.return_value = mock_connection
             mock_connection.recv.side_effect = [
@@ -183,7 +183,7 @@ class TestInputValidation:
     @pytest.fixture
     def mock_tv(self):
         """Create a mocked TvDatafeed for validation testing"""
-        with patch('tvDatafeed.main.ws.create_connection') as mock_ws:
+        with patch('tvDatafeed.main.create_connection') as mock_ws:
             mock_connection = MagicMock()
             mock_ws.return_value = mock_connection
             mock_connection.recv.return_value = '~m~52~m~{"m":"qsd","p":["qs_test123",{"n":"symbol_1","s":"ok"}]}'
@@ -259,7 +259,7 @@ class TestLiveFeedErrors:
 
     def test_callback_not_callable(self):
         """Test validation of callback parameter"""
-        with patch('tvDatafeed.main.ws.create_connection') as mock_ws:
+        with patch('tvDatafeed.main.create_connection') as mock_ws:
             mock_connection = MagicMock()
             mock_ws.return_value = mock_connection
             mock_connection.recv.return_value = '~m~52~m~{"m":"qsd","p":["qs_test123",{"n":"symbol_1","s":"ok"}]}'
@@ -279,7 +279,7 @@ class TestLiveFeedErrors:
 
     def test_stop_before_start(self):
         """Test stopping feed before starting"""
-        with patch('tvDatafeed.main.ws.create_connection') as mock_ws:
+        with patch('tvDatafeed.main.create_connection') as mock_ws:
             mock_connection = MagicMock()
             mock_ws.return_value = mock_connection
             mock_connection.recv.return_value = '~m~52~m~{"m":"qsd","p":["qs_test123",{"n":"symbol_1","s":"ok"}]}'
@@ -297,7 +297,7 @@ class TestEdgeCases:
     @pytest.fixture
     def mock_tv_edge(self):
         """Create a mocked TvDatafeed for edge case testing"""
-        with patch('tvDatafeed.main.ws.create_connection') as mock_ws:
+        with patch('tvDatafeed.main.create_connection') as mock_ws:
             mock_connection = MagicMock()
             mock_ws.return_value = mock_connection
             mock_connection.recv.return_value = '~m~52~m~{"m":"qsd","p":["qs_test123",{"n":"symbol_1","s":"ok"}]}'
@@ -373,7 +373,7 @@ class TestRateLimiting:
     @pytest.fixture
     def mock_tv_rate(self):
         """Create a mocked TvDatafeed for rate limiting testing"""
-        with patch('tvDatafeed.main.ws.create_connection') as mock_ws:
+        with patch('tvDatafeed.main.create_connection') as mock_ws:
             mock_connection = MagicMock()
             mock_ws.return_value = mock_connection
             mock_connection.recv.return_value = '~m~52~m~{"m":"qsd","p":["qs_test123",{"n":"symbol_1","s":"ok"}]}'

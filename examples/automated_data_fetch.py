@@ -72,7 +72,7 @@ def fetch_data():
     logger.info(f"Time remaining: {info.get('time_remaining')}")
 
     # Create TvDatafeed instance
-    tv = TvDatafeed(auth_token=token, verbose=False)
+    tv = TvDatafeed(auth_token=token, verbose=True)
 
     # Define symbols to fetch
     symbols = [
@@ -91,7 +91,7 @@ def fetch_data():
                 symbol=symbol,
                 exchange=exchange,
                 interval=Interval.in_1_hour,
-                n_bars=100
+                n_bars=10000
             )
 
             if df is not None and not df.empty:

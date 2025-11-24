@@ -19,10 +19,17 @@ class TestLiveFeedBasics:
     @pytest.fixture
     def mock_live_tv(self):
         """Create a mocked TvDatafeedLive instance"""
-        with patch('tvDatafeed.main.create_connection') as mock_ws:
+        with patch('tvDatafeed.main.create_connection') as mock_ws, \
+             patch('tvDatafeed.main.requests.get') as mock_get:
             mock_connection = MagicMock()
             mock_ws.return_value = mock_connection
             mock_connection.recv.return_value = '~m~52~m~{"m":"qsd","p":["qs_test123",{"n":"symbol_1","s":"ok"}]}'
+
+            # Mock search_symbol to return valid results
+            mock_response = Mock()
+            mock_response.status_code = 200
+            mock_response.text = '[{"symbol": "BINANCE:BTCUSDT", "exchange": "BINANCE", "type": "crypto"}]'
+            mock_get.return_value = mock_response
 
             tv = TvDatafeedLive()
             yield tv
@@ -76,10 +83,17 @@ class TestSeisManagement:
     @pytest.fixture
     def mock_live_tv(self):
         """Create a mocked TvDatafeedLive for SEIS testing"""
-        with patch('tvDatafeed.main.create_connection') as mock_ws:
+        with patch('tvDatafeed.main.create_connection') as mock_ws, \
+             patch('tvDatafeed.main.requests.get') as mock_get:
             mock_connection = MagicMock()
             mock_ws.return_value = mock_connection
             mock_connection.recv.return_value = '~m~52~m~{"m":"qsd","p":["qs_test123",{"n":"symbol_1","s":"ok"}]}'
+
+            # Mock search_symbol to return valid results for any symbol
+            mock_response = Mock()
+            mock_response.status_code = 200
+            mock_response.text = '[{"symbol": "BINANCE:BTCUSDT", "exchange": "BINANCE", "type": "crypto"}]'
+            mock_get.return_value = mock_response
 
             tv = TvDatafeedLive()
             yield tv
@@ -143,10 +157,17 @@ class TestConsumerManagement:
     @pytest.fixture
     def mock_live_tv(self):
         """Create a mocked TvDatafeedLive for consumer testing"""
-        with patch('tvDatafeed.main.create_connection') as mock_ws:
+        with patch('tvDatafeed.main.create_connection') as mock_ws, \
+             patch('tvDatafeed.main.requests.get') as mock_get:
             mock_connection = MagicMock()
             mock_ws.return_value = mock_connection
             mock_connection.recv.return_value = '~m~52~m~{"m":"qsd","p":["qs_test123",{"n":"symbol_1","s":"ok"}]}'
+
+            # Mock search_symbol
+            mock_response = Mock()
+            mock_response.status_code = 200
+            mock_response.text = '[{"symbol": "BINANCE:BTCUSDT", "exchange": "BINANCE", "type": "crypto"}]'
+            mock_get.return_value = mock_response
 
             tv = TvDatafeedLive()
             yield tv
@@ -216,10 +237,17 @@ class TestThreadSafety:
     @pytest.fixture
     def mock_live_tv(self):
         """Create a mocked TvDatafeedLive for thread safety testing"""
-        with patch('tvDatafeed.main.create_connection') as mock_ws:
+        with patch('tvDatafeed.main.create_connection') as mock_ws, \
+             patch('tvDatafeed.main.requests.get') as mock_get:
             mock_connection = MagicMock()
             mock_ws.return_value = mock_connection
             mock_connection.recv.return_value = '~m~52~m~{"m":"qsd","p":["qs_test123",{"n":"symbol_1","s":"ok"}]}'
+
+            # Mock search_symbol
+            mock_response = Mock()
+            mock_response.status_code = 200
+            mock_response.text = '[{"symbol": "BINANCE:SYM0", "exchange": "BINANCE", "type": "crypto"}]'
+            mock_get.return_value = mock_response
 
             tv = TvDatafeedLive()
             yield tv
@@ -292,10 +320,17 @@ class TestHistoricalDataWithLiveFeed:
     @pytest.fixture
     def mock_live_tv(self):
         """Create a mocked TvDatafeedLive for historical data testing"""
-        with patch('tvDatafeed.main.create_connection') as mock_ws:
+        with patch('tvDatafeed.main.create_connection') as mock_ws, \
+             patch('tvDatafeed.main.requests.get') as mock_get:
             mock_connection = MagicMock()
             mock_ws.return_value = mock_connection
             mock_connection.recv.return_value = '~m~52~m~{"m":"qsd","p":["qs_test123",{"n":"symbol_1","s":"ok"}]}'
+
+            # Mock search_symbol
+            mock_response = Mock()
+            mock_response.status_code = 200
+            mock_response.text = '[{"symbol": "BINANCE:BTCUSDT", "exchange": "BINANCE", "type": "crypto"}]'
+            mock_get.return_value = mock_response
 
             tv = TvDatafeedLive()
             yield tv
@@ -343,10 +378,17 @@ class TestLiveFeedInheritance:
 
     def test_shared_methods(self):
         """Test that TvDatafeedLive has all TvDatafeed methods"""
-        with patch('tvDatafeed.main.create_connection') as mock_ws:
+        with patch('tvDatafeed.main.create_connection') as mock_ws, \
+             patch('tvDatafeed.main.requests.get') as mock_get:
             mock_connection = MagicMock()
             mock_ws.return_value = mock_connection
             mock_connection.recv.return_value = '~m~52~m~{"m":"qsd","p":["qs_test123",{"n":"symbol_1","s":"ok"}]}'
+
+            # Mock search_symbol
+            mock_response = Mock()
+            mock_response.status_code = 200
+            mock_response.text = '[]'
+            mock_get.return_value = mock_response
 
             tv = TvDatafeedLive()
 

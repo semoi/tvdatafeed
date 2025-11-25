@@ -44,6 +44,7 @@ from .exceptions import (
     InvalidIntervalError,
     ConfigurationError
 )
+from .auth import TradingViewAuth
 
 # Optional: pyotp for automatic TOTP code generation
 try:
@@ -149,11 +150,8 @@ interval_len = {
 
 
 class TvDatafeed:
-    __sign_in_url = 'https://www.tradingview.com/accounts/signin/'
-    __2fa_url = 'https://www.tradingview.com/accounts/two-factor/signin/totp/'
     __search_url = 'https://symbol-search.tradingview.com/symbol_search/?text={}&hl=1&exchange={}&lang=en&type=&domain=production'
     __ws_headers = json.dumps({"Origin": "https://data.tradingview.com"})
-    __signin_headers = {'Referer': 'https://www.tradingview.com'}
     __ws_timeout = 5
 
     # WebSocket connection retry configuration
@@ -411,8 +409,21 @@ class TvDatafeed:
 
         return None
 
+    def _get_totp_secret(self) -> Optional[str]:
+        """Get the TOTP secret for automatic 2FA code generation
+
+        Returns
+        -------
+        str or None
+            TOTP secret if configured, None otherwise
+        """
+        return self._totp_secret
+
     def __auth(self, username: Optional[str], password: Optional[str]) -> Optional[str]:
-        """Authenticate with TradingView
+        """Authenticate with TradingView using HTTP requests (bypasses reCAPTCHA)
+
+        This method uses simple HTTP POST requests instead of browser automation,
+        which successfully bypasses reCAPTCHA detection.
 
         Parameters
         ----------
@@ -436,187 +447,43 @@ class TvDatafeed:
         if username is None or password is None:
             return None
 
-        # Use a session to maintain cookies across requests (needed for 2FA)
-        session = requests.Session()
-
-        data = {
-            "username": username,
-            "password": password,
-            "remember": "on"
-        }
-
         try:
-            logger.info(f"Authenticating user: {username}")
+            logger.info(f"Authenticating user: {username} (HTTP method)")
 
-            response = session.post(
-                url=self.__sign_in_url,
-                data=data,
-                headers=self.__signin_headers,
-                timeout=10.0
+            # Create authentication handler
+            auth_handler = TradingViewAuth()
+
+            # Get TOTP secret if available
+            totp_secret = self._get_totp_secret()
+
+            # Attempt login (handles 2FA automatically if totp_secret provided)
+            user_data = auth_handler.login_user(
+                username=username,
+                password=password,
+                totp_secret=totp_secret
             )
 
-            if response.status_code != 200:
-                logger.error(f"Authentication failed with status code: {response.status_code}")
+            # Extract auth token
+            token = user_data.get('authToken')
+
+            if not token:
+                logger.error("No auth token in response")
                 raise AuthenticationError(
-                    f"Authentication failed: HTTP {response.status_code}. "
-                    f"Please check your credentials."
+                    "Authentication failed: No auth token received from server"
                 )
 
-            response_data = response.json()
-
-            if 'error' in response_data:
-                error_msg = response_data.get('error', 'Unknown error')
-                error_code = response_data.get('code', '')
-
-                logger.error(f"Authentication error: {error_msg} (code: {error_code})")
-
-                # Check for CAPTCHA requirement
-                if error_code == 'recaptcha_required':
-                    raise CaptchaRequiredError(username=username)
-
-                raise AuthenticationError(f"Authentication failed: {error_msg}")
-
-            # Check if 2FA is required
-            # TradingView returns this when 2FA is enabled on the account
-            if response_data.get('two_factor_required') or response_data.get('2fa_required'):
-                logger.info("Two-factor authentication required")
-                return self.__handle_2fa(session, username, response_data)
-
-            if 'user' not in response_data or 'auth_token' not in response_data['user']:
-                logger.error("Invalid response structure from authentication")
-                raise AuthenticationError(
-                    "Authentication failed: Invalid response from server"
-                )
-
-            token = response_data['user']['auth_token']
-            logger.info(f"Authentication successful for user: {username}")
+            logger.info(f"Authentication successful for user: {user_data.get('username')}")
             logger.debug(f"Auth token: {mask_sensitive_data(token)}")
 
             return token
 
-        except requests.exceptions.Timeout:
-            logger.error("Authentication request timed out")
-            raise AuthenticationError(
-                "Authentication timed out. Please check your network connection."
-            )
-        except requests.exceptions.ConnectionError as e:
-            logger.error(f"Connection error during authentication: {e}")
-            raise AuthenticationError(
-                "Unable to connect to TradingView. Please check your network connection."
-            )
         except AuthenticationError:
-            # Re-raise our custom exceptions
-            raise
-        except CaptchaRequiredError:
-            # Re-raise our custom exceptions
-            raise
-        except TwoFactorRequiredError:
-            # Re-raise our custom exceptions
-            raise
-        except ConfigurationError:
             # Re-raise our custom exceptions
             raise
         except Exception as e:
             logger.error(f"Unexpected error during authentication: {e}")
             raise AuthenticationError(
                 f"Authentication failed with unexpected error: {type(e).__name__}: {e}"
-            )
-
-    def __handle_2fa(
-        self,
-        session: requests.Session,
-        username: str,
-        initial_response: dict
-    ) -> str:
-        """Handle two-factor authentication
-
-        Parameters
-        ----------
-        session : requests.Session
-            The session with cookies from initial login
-        username : str
-            TradingView username (for error messages)
-        initial_response : dict
-            The response from the initial login attempt
-
-        Returns
-        -------
-        str
-            Authentication token after successful 2FA
-
-        Raises
-        ------
-        TwoFactorRequiredError
-            If no 2FA code is available
-        AuthenticationError
-            If 2FA verification fails
-        """
-        # Get the 2FA code
-        totp_code = self._get_totp_code()
-
-        if not totp_code:
-            logger.error("2FA required but no code available")
-            raise TwoFactorRequiredError(method="totp")
-
-        logger.info("Submitting 2FA code")
-
-        # Prepare 2FA request
-        data_2fa = {
-            "code": totp_code,
-            "remember": "on"
-        }
-
-        try:
-            response_2fa = session.post(
-                url=self.__2fa_url,
-                data=data_2fa,
-                headers=self.__signin_headers,
-                timeout=10.0
-            )
-
-            if response_2fa.status_code != 200:
-                logger.error(f"2FA request failed with status code: {response_2fa.status_code}")
-                raise AuthenticationError(
-                    f"2FA verification failed: HTTP {response_2fa.status_code}"
-                )
-
-            response_data = response_2fa.json()
-
-            if 'error' in response_data:
-                error_msg = response_data.get('error', 'Unknown error')
-                error_code = response_data.get('code', '')
-
-                logger.error(f"2FA error: {error_msg} (code: {error_code})")
-
-                if 'invalid' in error_msg.lower() or 'incorrect' in error_msg.lower():
-                    raise AuthenticationError(
-                        f"Invalid 2FA code. Please check your authenticator app or TOTP secret. "
-                        f"Error: {error_msg}"
-                    )
-
-                raise AuthenticationError(f"2FA verification failed: {error_msg}")
-
-            if 'user' not in response_data or 'auth_token' not in response_data['user']:
-                logger.error("Invalid response structure from 2FA verification")
-                raise AuthenticationError(
-                    "2FA verification failed: Invalid response from server"
-                )
-
-            token = response_data['user']['auth_token']
-            logger.info(f"2FA authentication successful for user: {username}")
-            logger.debug(f"Auth token: {mask_sensitive_data(token)}")
-
-            return token
-
-        except requests.exceptions.Timeout:
-            logger.error("2FA request timed out")
-            raise AuthenticationError(
-                "2FA verification timed out. Please check your network connection."
-            )
-        except requests.exceptions.ConnectionError as e:
-            logger.error(f"Connection error during 2FA: {e}")
-            raise AuthenticationError(
-                "Unable to connect to TradingView for 2FA. Please check your network connection."
             )
 
     def __create_connection(self) -> None:

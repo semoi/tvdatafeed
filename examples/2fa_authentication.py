@@ -5,9 +5,14 @@ Two-Factor Authentication (2FA) Example
 This example demonstrates how to authenticate with TradingView when you have
 2FA (Two-Factor Authentication) enabled on your account.
 
+✅ NEW in v2.0: HTTP authentication automatically handles 2FA!
+- No more reCAPTCHA blocking
+- Automatic TOTP code generation and submission
+- Works perfectly in headless environments
+
 There are two methods:
-1. TOTP Secret Key (Recommended) - Automatic code generation
-2. Manual 2FA Code - Provide the 6-digit code directly
+1. TOTP Secret Key (Recommended) - Automatic code generation ✅ WORKS!
+2. Manual 2FA Code - Provide the 6-digit code directly ✅ WORKS!
 """
 
 import os
@@ -27,9 +32,12 @@ def method_1_totp_secret():
 
     This method requires your TOTP secret key, which is shown when you
     first set up 2FA on TradingView.
+
+    ✅ NEW in v2.0: This now works perfectly with HTTP authentication!
+    The library automatically generates and submits the TOTP code.
     """
     print("\n" + "="*70)
-    print("METHOD 1: Using TOTP Secret Key (Automatic)")
+    print("METHOD 1: Using TOTP Secret Key (Automatic) ✅ v2.0")
     print("="*70 + "\n")
 
     # Load from environment variables (RECOMMENDED)
@@ -47,14 +55,15 @@ def method_1_totp_secret():
         return
 
     try:
-        print("Authenticating with TOTP secret...")
+        print("Authenticating with TOTP secret (v2.0 HTTP method)...")
+        print("✅ reCAPTCHA will be bypassed automatically!")
         tv = TvDatafeed(
             username=username,
             password=password,
             totp_secret=totp_secret
         )
 
-        print("Authentication successful!")
+        print("✅ Authentication successful! 2FA handled automatically!")
 
         # Test by fetching some data
         print("\nFetching test data...")

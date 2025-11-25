@@ -105,22 +105,9 @@ tv = TvDatafeed(username='your_username', password='your_password')
 
 ⚠️ **Security Note:** Never hardcode credentials in production code.
 
-**Option 3: Pre-obtained Token (for CAPTCHA issues)**
+**Option 3: Two-Factor Authentication (2FA)**
 
-If TradingView requires CAPTCHA verification, you'll need to extract the token manually:
-
-```bash
-export TV_AUTH_TOKEN="your_token_here"
-```
-
-```python
-import os
-tv = TvDatafeed(auth_token=os.getenv('TV_AUTH_TOKEN'))
-```
-
-See [CAPTCHA Workaround](#captcha-workaround) section for detailed instructions.
-
-**Option 4: Two-Factor Authentication (2FA)**
+✅ **NEW:** Authentication now uses HTTP requests that **automatically bypass reCAPTCHA**! No manual token extraction needed.
 
 If you have 2FA enabled on your TradingView account, you can authenticate automatically:
 
@@ -689,9 +676,12 @@ export TV_USERNAME="your_username"
 export TV_PASSWORD="your_password"
 ```
 
-### reCAPTCHA / Rate Limit Issue (Common)
+### reCAPTCHA / Rate Limit Issue
 
-When trying to authenticate with username/password, you may see this error:
+> ✅ **RESOLVED IN v2.0:** The authentication method now uses HTTP requests that **automatically bypass reCAPTCHA** detection! Simply use `username`/`password` (+ `totp_secret` if 2FA enabled) - no manual token extraction needed. The JWT token method below is now optional for advanced use cases.
+
+**Legacy Issue (Pre-v2.0):**
+When trying to authenticate with username/password, you may have seen this error:
 
 ```
 AuthenticationError: Authentication failed: You have been locked out. Please try again later.

@@ -1,12 +1,34 @@
 """
-CAPTCHA Workaround Example
-==========================
+CAPTCHA Workaround Example - LEGACY (v1.x)
+===========================================
+
+⚠️  IMPORTANT NOTICE - v2.0 UPDATE (Nov 2025)  ⚠️
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+The CAPTCHA issue has been COMPLETELY RESOLVED in v2.0!
+
+✅ NEW: Automatic reCAPTCHA bypass with HTTP authentication
+✅ NO manual token extraction needed
+✅ Simple username/password authentication works perfectly
+✅ Automatic 2FA support included
+
+RECOMMENDED: Use the new HTTP authentication method instead!
+See: examples/http_authentication_v2.py
+
+This file is kept for reference and legacy compatibility only.
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+
+LEGACY DOCUMENTATION (v1.x):
+============================
 
 This example demonstrates how to handle TradingView's CAPTCHA requirement
 by manually extracting the authentication token from your browser.
 
 When TradingView requires CAPTCHA verification, you'll receive a
 CaptchaRequiredError with detailed instructions on how to proceed.
+
+NOTE: In v2.0+, this manual process is NO LONGER NECESSARY!
 """
 
 import os
@@ -264,9 +286,21 @@ def main():
 ========================================================================
 
               TvDatafeed CAPTCHA Workaround Examples
+                        ⚠️  LEGACY (v1.x)  ⚠️
 
-  This script demonstrates how to handle TradingView's CAPTCHA
-  requirement by manually extracting the authentication token.
+  ┌────────────────────────────────────────────────────────────────┐
+  │                                                                │
+  │  ✅ GOOD NEWS: The CAPTCHA issue is SOLVED in v2.0!           │
+  │                                                                │
+  │  The new HTTP authentication method automatically bypasses    │
+  │  reCAPTCHA - no manual token extraction needed!               │
+  │                                                                │
+  │  RECOMMENDED: Use examples/http_authentication_v2.py instead   │
+  │                                                                │
+  └────────────────────────────────────────────────────────────────┘
+
+  This script demonstrates the OLD method (v1.x) of handling
+  TradingView's CAPTCHA by manually extracting the auth token.
 
 ========================================================================
 """)

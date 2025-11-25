@@ -5,6 +5,9 @@ This example demonstrates:
 - Connecting to TradingView
 - Downloading historical data
 - Working with the DataFrame result
+
+✅ NEW in v2.0: HTTP authentication automatically bypasses reCAPTCHA!
+Simply use username/password - no manual token extraction needed.
 """
 import os
 from tvDatafeed import TvDatafeed, Interval
@@ -23,11 +26,14 @@ def main():
     print("   ✓ Connected (no-login mode)")
 
     # Method 2: With authentication (recommended for full access)
-    # Uncomment below to use with credentials
+    # ✅ NEW in v2.0: HTTP auth bypasses reCAPTCHA automatically!
+    # Uncomment below to use with credentials:
     # tv = TvDatafeed(
     #     username=os.getenv('TV_USERNAME'),
-    #     password=os.getenv('TV_PASSWORD')
+    #     password=os.getenv('TV_PASSWORD'),
+    #     totp_secret=os.getenv('TV_TOTP_SECRET')  # If 2FA enabled
     # )
+    # No more CAPTCHA errors!
 
     # Download Bitcoin data
     print("\n2. Downloading BTCUSDT data from Binance...")

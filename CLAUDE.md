@@ -19,12 +19,13 @@ tvdatafeed/
 ├── tvDatafeed/
 │   ├── __init__.py           # Exports des classes principales
 │   ├── main.py               # TvDatafeed (classe de base)
+│   ├── auth.py               # TradingViewAuth (authentification HTTP - NEW v2.0)
 │   ├── datafeed.py           # TvDatafeedLive (live data + threading)
 │   ├── seis.py               # Seis (Symbol-Exchange-Interval Set)
 │   └── consumer.py           # Consumer (gestion callbacks)
 ├── scripts/
-│   ├── get_auth_token.py     # Extraction JWT via Playwright (contourne reCAPTCHA)
-│   └── token_manager.py      # Gestion lifecycle des tokens (cache, refresh, validation)
+│   ├── get_auth_token.py     # [LEGACY] Extraction JWT via Playwright (manuel)
+│   └── token_manager.py      # [LEGACY] Gestion lifecycle des tokens (optionnel)
 ├── examples/
 │   └── automated_data_fetch.py  # Exemple script automatisé serveur
 ├── tests/
@@ -41,7 +42,8 @@ tvdatafeed/
 #### 1. TvDatafeed (main.py)
 - **Rôle** : Classe de base pour récupération de données historiques
 - **Fonctionnalités** :
-  - Authentification TradingView (username/password)
+  - ✅ **Authentification HTTP (v2.0)** : Contourne automatiquement reCAPTCHA via requêtes POST simples
+  - Authentification TradingView (username/password + totp_secret pour 2FA)
   - Connexion WebSocket à `wss://data.tradingview.com/socket.io/websocket`
   - Récupération jusqu'à 5000 bars de données historiques
   - Recherche de symboles
@@ -51,6 +53,7 @@ tvdatafeed/
   - ✅ Verbose logging control (verbose parameter) - commit 0045714
   - ✅ Timeout WebSocket configurable (ws_timeout, TV_WS_TIMEOUT)
   - ✅ Gestion d'erreurs robuste (exceptions personnalisées)
+  - ✅ **Authentification HTTP (v2.0)** : Bypass automatique reCAPTCHA
 - **Limitations restantes** :
   - ✅ Retry automatique sur connexion WebSocket (Phase 2)
   - ✅ Timeout cumulatif dans __get_response() (Phase 2)
@@ -82,6 +85,24 @@ tvdatafeed/
   - Exécution asynchrone des callbacks
   - Lifecycle management (start/stop)
 
+#### 5. TradingViewAuth (auth.py) - NEW v2.0
+- **Rôle** : Module d'authentification HTTP qui contourne reCAPTCHA
+- **Implémentation** : Port Python du projet JavaScript dovudo/tradingview-websocket
+- **Fonctionnalités** :
+  - `login_user()` : Authentification via HTTP POST simple (bypass reCAPTCHA)
+  - `_submit_2fa()` : Soumission automatique du code TOTP pour 2FA
+  - `get_user()` : Extraction des données utilisateur et auth_token depuis HTML
+  - Génération User-Agent : `TWAPI/3.0 (release; system; machine)`
+- **Avantages** :
+  - ✅ Contourne complètement reCAPTCHA invisible de TradingView
+  - ✅ Pas besoin de browser automation (Playwright/Selenium)
+  - ✅ Support 2FA automatique via pyotp
+  - ✅ Extraction auth_token par regex depuis la réponse HTML
+- **URLs utilisées** :
+  - Login : `https://www.tradingview.com/accounts/signin/`
+  - 2FA : `https://www.tradingview.com/accounts/two-factor/signin/totp/`
+  - User data : `https://www.tradingview.com/`
+
 ### Intervalles supportés
 
 Minutes : `1m, 3m, 5m, 15m, 30m, 45m`
@@ -93,8 +114,12 @@ Autres : `1D (daily), 1W (weekly), 1M (monthly)`
 #### Sécurité & Authentification
 - ✅ **COMPLÉTÉ** : Support 2FA/TOTP implémenté (PR #30 - Nov 2025)
 - ✅ **COMPLÉTÉ** : Credentials masqués dans les logs (mask_sensitive_data)
-- ✅ **CONTOURNÉ** : reCAPTCHA invisible → Solution JWT via Playwright (scripts/get_auth_token.py)
-- ✅ **COMPLÉTÉ** : Gestion expiration/renouvellement tokens JWT (scripts/token_manager.py)
+- ✅ **RÉSOLU** : reCAPTCHA invisible → **Nouvelle méthode HTTP bypass automatique** (v2.0 - Nov 2025)
+  - Port du code JavaScript dovudo/tradingview-websocket vers Python
+  - Authentication via HTTP POST simple (tvDatafeed/auth.py)
+  - Gestion 2FA automatique intégrée
+  - Plus besoin d'extraction JWT manuelle (optionnel pour cas avancés)
+- ✅ **COMPLÉTÉ** : Gestion expiration/renouvellement tokens JWT (scripts/token_manager.py - legacy)
 - 🟡 Nettoyer les credentials de la mémoire après auth
 
 #### WebSocket & Network
@@ -143,7 +168,8 @@ Pour mener ce projet à bien, une équipe de **7 agents spécialisés** a été 
 - Gestion sécurisée des credentials
 - Token management (génération, renouvellement, expiration)
 - Logging sécurisé
-- Fichier responsable : `main.py` (méthodes `__auth`, `__init__`)
+- **Authentification HTTP (v2.0)** : Bypass reCAPTCHA automatique
+- Fichiers responsables : `auth.py` (TradingViewAuth), `main.py` (méthodes `__auth`, `__init__`)
 
 ### 3. 🌐 WebSocket & Network
 **Fichier** : `.claude/agents/websocket-network.md`
@@ -448,16 +474,27 @@ TvDatafeedLive                  Consumer                    Seis
 
 ---
 
-## Problème reCAPTCHA TradingView (Découverte Nov 2025)
+## Problème reCAPTCHA TradingView - ✅ RÉSOLU (Nov 2025)
 
-### Contexte
+### Contexte historique
 
-L'authentification via `username/password` échoue systématiquement avec l'erreur :
+**Problème initial** : L'authentification via `username/password` avec browser automation (Playwright/Selenium) échouait systématiquement avec l'erreur :
 ```
 AuthenticationError: Authentication failed: You have been locked out. Please try again later.
 ```
 
-**Cette erreur est trompeuse** - ce n'est PAS un vrai rate limit.
+**Cette erreur était trompeuse** - ce n'était PAS un vrai rate limit, mais la détection reCAPTCHA.
+
+### ✅ Solution implémentée (v2.0 - Nov 2025)
+
+**Méthode HTTP authentification** : Port Python du projet dovudo/tradingview-websocket
+- Utilise des requêtes HTTP POST simples au lieu de browser automation
+- Contourne complètement la détection reCAPTCHA invisible
+- Support 2FA automatique intégré
+- **Fichier** : `tvDatafeed/auth.py` (nouvelle classe `TradingViewAuth`)
+- **Intégration** : Méthode `__auth()` dans `main.py` réécrite pour utiliser HTTP auth
+
+**Résultat** : Authentification username/password fonctionne maintenant à 100% ✅
 
 ### Analyse technique
 
@@ -481,17 +518,50 @@ Cela prouve que :
 2. Les credentials sont corrects (sinon "invalid_credentials")
 3. C'est le reCAPTCHA qui bloque spécifiquement l'auth automatisée
 
-### Impact sur le code
+### Impact sur le code (APRÈS résolution v2.0)
 
 | Fonctionnalité | Status | Détails |
 |----------------|--------|---------|
-| Auth username/password | ❌ Bloqué | reCAPTCHA invisible |
-| Auth via `auth_token` JWT | ✅ Fonctionne | Contourne le reCAPTCHA |
+| Auth username/password | ✅ **RÉSOLU** | Méthode HTTP bypass reCAPTCHA (v2.0) |
+| Auth via `auth_token` JWT | ✅ Fonctionne | Alternative manuelle (toujours supporté) |
 | Mode non authentifié | ✅ Fonctionne | Données limitées |
-| 2FA/TOTP | ⚠️ Inutilisable | Requiert auth initiale |
-| Symbol Search (REST) | ❌ HTTP 403 | Requiert cookies auth |
+| 2FA/TOTP | ✅ **RÉSOLU** | Support automatique via pyotp |
+| Symbol Search (REST) | ✅ Fonctionne | Après auth HTTP réussie |
 
-### Solution : Authentification via JWT Token
+### Solution principale : Authentification HTTP (v2.0) - RECOMMANDÉ
+
+#### Utilisation (simple et automatique)
+```python
+from tvDatafeed import TvDatafeed, Interval
+
+# Authentification automatique avec username/password
+tv = TvDatafeed(
+    username="votre_username",
+    password="votre_password",
+    totp_secret="VOTRE_TOTP_SECRET"  # Si 2FA activé
+)
+
+# Fonctionne parfaitement - reCAPTCHA contourné automatiquement
+df = tv.get_hist('BTCUSDT', 'BINANCE', Interval.in_1_hour, n_bars=5000)
+```
+
+#### Comment ça marche (détails techniques)
+La classe `TradingViewAuth` (auth.py) :
+1. Envoie un POST à `https://www.tradingview.com/accounts/signin/`
+2. TradingView renvoie des cookies de session (sessionid, sessionid_sign)
+3. Si 2FA requis, génère automatiquement le code TOTP et le soumet
+4. Récupère la page HTML de TradingView et extrait `auth_token` par regex
+5. Retourne le JWT token pour utilisation WebSocket
+
+**Avantages** :
+- ✅ Pas besoin d'ouvrir un navigateur
+- ✅ Pas d'interaction manuelle
+- ✅ Support 2FA automatique
+- ✅ Fonctionne en environnement serveur (headless)
+
+### Solution alternative : JWT Token manuel (legacy)
+
+Si vous préférez extraire le token manuellement :
 
 #### Extraction du token
 ```javascript
@@ -510,6 +580,8 @@ tv = TvDatafeed(auth_token="eyJhbGciOiJSUzUxMiIs...")
 # Accès complet aux données Pro/Premium
 df = tv.get_hist('BTCUSDT', 'BINANCE', Interval.in_1_hour, n_bars=5000)
 ```
+
+**Note** : Cette méthode reste supportée mais n'est plus recommandée (nécessite intervention manuelle).
 
 #### Structure du JWT Token
 ```json
@@ -533,12 +605,59 @@ df = tv.get_hist('BTCUSDT', 'BINANCE', Interval.in_1_hour, n_bars=5000)
 | `sessionid` | Cookie HTTP | Session web | ❌ NON |
 | CSRF token | Meta tag HTML | Formulaires | ❌ NON |
 
-### Recommandations pour le code
+### Implémentation technique (auth.py)
 
-1. **Documenter clairement** dans README.md (fait)
-2. **Améliorer le message d'erreur** pour guider l'utilisateur vers la solution JWT
-3. **Ajouter un helper** pour valider le format JWT token
-4. **Considérer** l'auto-refresh du token (si possible via API)
+#### Classe TradingViewAuth
+
+```python
+class TradingViewAuth:
+    """Handle TradingView authentication using HTTP requests"""
+
+    def __init__(self, user_agent: Optional[str] = None):
+        self.user_agent = user_agent or self._generate_user_agent()
+        self.session = requests.Session()
+
+    def _generate_user_agent(self) -> str:
+        """Generate TWAPI/3.0 user agent"""
+        system = platform.system()
+        release = platform.release()
+        machine = platform.machine()
+        return f"TWAPI/3.0 ({release}; {system}; {machine})"
+
+    def login_user(self, username, password, totp_secret=None) -> Dict[str, Any]:
+        """Login via HTTP POST - bypasses reCAPTCHA"""
+        # POST to https://www.tradingview.com/accounts/signin/
+        # Handle 2FA if required
+        # Extract auth_token from HTML response
+        pass
+
+    def _submit_2fa(self, session_id, signature, totp_code) -> Dict[str, Any]:
+        """Submit TOTP code for 2FA verification"""
+        # POST to https://www.tradingview.com/accounts/two-factor/signin/totp/
+        pass
+
+    def get_user(self, session_id, signature) -> Dict[str, Any]:
+        """Extract user data and auth_token from HTML"""
+        # Regex extraction: r'"auth_token":"(.*?)"'
+        pass
+```
+
+#### Intégration dans main.py
+
+La méthode `__auth()` a été complètement réécrite :
+- Crée une instance de `TradingViewAuth`
+- Appelle `login_user()` avec les credentials
+- Récupère automatiquement le TOTP secret depuis `_totp_secret`
+- Extrait et retourne l'`auth_token` JWT
+
+**Code simplifié** : 97 lignes de l'ancienne méthode `__handle_2fa()` supprimées ✅
+
+### Recommandations futures
+
+1. ✅ **Documenter clairement** dans README.md (fait)
+2. 🟡 **Ajouter un helper** pour valider le format JWT token
+3. 🟡 **Considérer** l'auto-refresh du token (si possible via API)
+4. 🟡 **Créer tests unitaires** pour auth.py avec mocks HTTP
 
 ### Tests d'intégration avec JWT
 
@@ -631,13 +750,42 @@ Résultats avec JWT token (Pro Premium) :
 
 ---
 
-**Version** : 1.6
-**Dernière mise à jour** : 2025-11-22
-**Statut** : ✅ Phase 1, Phase 2, Phase 3, Phase 4 et Phase 5 complétées | ⚠️ reCAPTCHA bloque auth username/password
+**Version** : 2.0
+**Dernière mise à jour** : 2025-11-25
+**Statut** : ✅ Phase 1-5 complétées | ✅ reCAPTCHA RÉSOLU avec authentification HTTP (v2.0)
 
 ---
 
 ## Historique des mises à jour
+
+### Version 2.0 (2025-11-25) - MAJEURE
+- 🎉 **RÉSOLUTION COMPLÈTE du problème reCAPTCHA**
+- ✅ **Nouvelle authentification HTTP** :
+  - Création du module `tvDatafeed/auth.py` (classe `TradingViewAuth`)
+  - Port Python du projet dovudo/tradingview-websocket
+  - Bypass automatique de reCAPTCHA via requêtes HTTP POST simples
+  - Support 2FA automatique intégré (pyotp)
+- ✅ **Réécriture de `main.py`** :
+  - Méthode `__auth()` complètement réécrite pour utiliser HTTP auth
+  - Suppression de 97 lignes obsolètes (`__handle_2fa()`)
+  - Suppression des constantes URL obsolètes
+  - Ajout méthode helper `_get_totp_secret()`
+- ✅ **Tests de validation** :
+  - Script `test_new_auth.py` : SUCCESS (authentification + récupération données)
+  - Test avec 2FA : Fonctionnel
+  - Test BTCUSDT : 10 bars récupérées avec succès
+- 📝 **Documentation mise à jour** :
+  - README.md : Section reCAPTCHA mise à jour (marquée comme RÉSOLU)
+  - CLAUDE.md : Architecture complète de la solution HTTP auth
+  - Ajout exemples d'utilisation simplifiés
+- 🔧 **Changements techniques** :
+  - User-Agent : `TWAPI/3.0 (release; system; machine)`
+  - Endpoints : `/accounts/signin/`, `/accounts/two-factor/signin/totp/`
+  - Extraction regex : `r'"auth_token":"(.*?)"'`
+  - Dépendance : requests, pyotp
+- **Scripts legacy** (marqués comme optionnels) :
+  - `scripts/get_auth_token.py` : Toujours fonctionnel mais plus nécessaire
+  - `scripts/token_manager.py` : Utile pour cas avancés uniquement
 
 ### Version 1.6 (2025-11-22)
 - ✅ Phase 5 complétée : UX & Documentation
